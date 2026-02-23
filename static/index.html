@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lucid API Explorer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ── TOPBAR ─────────────────────────────────────────────────────────── -->
+  <header id="topbar">
+    <div id="topbar-left">
+      <span id="app-name">Lucid API Explorer</span>
+      <span id="app-tagline">REST · SCIM · MCP — powered by Claude</span>
+    </div>
+    <div id="topbar-center">
+      <span id="auth-status-dot" class="status-dot dot-unauthenticated"></span>
+      <span id="auth-status-label">Not authenticated</span>
+    </div>
+    <div id="topbar-right">
+      <div id="scope-tags"><!-- populated by app.js --></div>
+      <button id="btn-view-flow" class="btn-ghost hidden" title="View user token OAuth flow">View User Token Auth Flow</button>
+      <button id="btn-view-account-flow" class="btn-ghost hidden" title="View account token OAuth flow">View Account Token Auth Flow</button>
+      <button id="btn-reauth-account" class="btn-ghost" title="Authenticate account token (for createUser, listUsers)">Auth Account Token</button>
+      <button id="btn-reauth" class="btn-ghost" title="Authenticate REST API user token">Auth User Token</button>
+    </div>
+  </header>
+
+  <!-- ── AUTH FLOW MODAL ────────────────────────────────────────────────────── -->
+  <!-- Shown when the user initiates OAuth. Explains every step as it happens.  -->
+  <div id="auth-modal-overlay" class="hidden">
+    <div id="auth-modal">
+      <div id="auth-modal-header">
+        <span id="auth-modal-title">REST API — OAuth 2.0 Authorization Code Flow</span>
+        <!-- title is updated dynamically by app.js for user vs account token flows -->
+        <button id="auth-modal-close" class="btn-ghost" title="Close">✕</button>
+      </div>
+
+      <p id="auth-modal-intro">
+        <strong>OAuth 2.0 Authorization Code Flow</strong> — step-by-step.
+        Each step shows exactly what was sent and what came back.
+      </p>
+
+      <div id="auth-flow-diagram">
+        <!-- Step pills — updated live by app.js -->
+        <div class="flow-step" id="flow-step-1">
+          <div class="flow-step-icon">1</div>
+          <div class="flow-step-body">
+            <div class="flow-step-label">Generate state token</div>
+            <div class="flow-step-detail">A random value to prevent CSRF attacks</div>
+          </div>
+          <div class="flow-step-status">⏳</div>
+        </div>
+        <div class="flow-connector">↓</div>
+        <div class="flow-step" id="flow-step-2">
+          <div class="flow-step-icon">2</div>
+          <div class="flow-step-body">
+            <div class="flow-step-label">Redirect to Lucid</div>
+            <div class="flow-step-detail">Your browser goes to Lucid's consent screen</div>
+          </div>
+          <div class="flow-step-status">⏳</div>
+        </div>
+        <div class="flow-connector">↓</div>
+        <div class="flow-step" id="flow-step-3">
+          <div class="flow-step-icon">3</div>
+          <div class="flow-step-body">
+            <div class="flow-step-label">Receive authorization code</div>
+            <div class="flow-step-detail">Lucid sends a one-time code to /callback</div>
+          </div>
+          <div class="flow-step-status">⏳</div>
+        </div>
+        <div class="flow-connector">↓</div>
+        <div class="flow-step" id="flow-step-4">
+          <div class="flow-step-icon">4</div>
+          <div class="flow-step-body">
+            <div class="flow-step-label">Validate state token</div>
+            <div class="flow-step-detail">Confirm the redirect is genuine, not forged</div>
+          </div>
+          <div class="flow-step-status">⏳</div>
+        </div>
+        <div class="flow-connector">↓</div>
+        <div class="flow-step" id="flow-step-5">
+          <div class="flow-step-icon">5</div>
+          <div class="flow-step-body">
+            <div class="flow-step-label">Exchange code for token</div>
+            <div class="flow-step-detail">Server-to-server POST — your secret never leaves the backend</div>
+          </div>
+          <div class="flow-step-status">⏳</div>
+        </div>
+      </div>
+
+      <!-- Error explanation panel — shown only when an error occurs -->
+      <div id="auth-error-panel" class="hidden">
+        <div id="auth-error-label">⚠ Authentication failed</div>
+        <div id="auth-error-detail"></div>
+        <div id="auth-error-fix"></div>
+      </div>
+
+      <!-- Success panel -->
+      <div id="auth-success-panel" class="hidden">
+        <div id="auth-success-label">✓ Authenticated</div>
+        <div id="auth-success-detail"></div>
+      </div>
+
+      <div id="auth-modal-actions">
+        <button id="btn-open-lucid" class="btn-execute">Open Lucid consent screen →</button>
+        <button id="btn-retry-auth" class="btn-ghost hidden">Try again</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MAIN GRID ──────────────────────────────────────────────────────── -->
+  <div id="layout">
+
+    <!-- ── LEFT SIDEBAR ───────────────────────────────────────────────── -->
+    <aside id="sidebar">
+
+      <!-- API Surface Selector + Endpoint List -->
+      <div id="sidebar-surfaces">
+        <div class="sidebar-section-label">API SURFACES</div>
+
+        <!-- REST API -->
+        <div class="surface-item" id="surface-rest">
+          <div class="surface-header" data-surface="rest">
+            <span class="surface-dot dot-rest"></span>
+            <div class="surface-header-text">
+              <span class="surface-name">REST API</span>
+              <span class="surface-desc">Users · OAuth</span>
+            </div>
+            <span class="surface-chevron">›</span>
+          </div>
+          <ul class="endpoint-list" id="endpoints-rest">
+            <li class="endpoint-group-label">Users</li>
+            <li class="endpoint-item" data-surface="rest" data-endpoint="getUser">
+              <span class="method-badge badge-get">GET</span>getUser
+            </li>
+            <li class="endpoint-item" data-surface="rest" data-endpoint="listUsers">
+              <span class="method-badge badge-get">GET</span>listUsers
+            </li>
+            <li class="endpoint-item" data-surface="rest" data-endpoint="userEmailSearch">
+              <span class="method-badge badge-get">GET</span>userEmailSearch
+            </li>
+            <li class="endpoint-item" data-surface="rest" data-endpoint="getUserProfile">
+              <span class="method-badge badge-get">GET</span>getUserProfile
+            </li>
+            <li class="endpoint-item" data-surface="rest" data-endpoint="createUser">
+              <span class="method-badge badge-post">POST</span>createUser
+            </li>
+            <li class="endpoint-group-label">OAuth Tokens</li>
+            <li class="endpoint-item" data-surface="rest" data-endpoint="refreshAccessToken">
+              <span class="method-badge badge-post">POST</span>refreshAccessToken
+            </li>
+            <li class="endpoint-item" data-surface="rest" data-endpoint="introspectAccessToken">
+              <span class="method-badge badge-post">POST</span>introspectAccessToken
+            </li>
+            <li class="endpoint-item" data-surface="rest" data-endpoint="revokeAccessToken">
+              <span class="method-badge badge-post">POST</span>revokeAccessToken
+            </li>
+          </ul>
+        </div>
+
+        <!-- SCIM API -->
+        <div class="surface-item" id="surface-scim">
+          <div class="surface-header" data-surface="scim">
+            <span class="surface-dot dot-scim"></span>
+            <div class="surface-header-text">
+              <span class="surface-name">SCIM API</span>
+              <span class="surface-desc">Provisioning · Directory</span>
+            </div>
+            <span class="surface-chevron">›</span>
+          </div>
+          <ul class="endpoint-list" id="endpoints-scim">
+            <li class="endpoint-item" data-surface="scim" data-endpoint="scimGetUser">
+              <span class="method-badge badge-get">GET</span>getUser
+            </li>
+            <li class="endpoint-item" data-surface="scim" data-endpoint="scimGetAllUsers">
+              <span class="method-badge badge-get">GET</span>getAllUsers
+            </li>
+            <li class="endpoint-item" data-surface="scim" data-endpoint="scimCreateUser">
+              <span class="method-badge badge-post">POST</span>createUser
+            </li>
+            <li class="endpoint-item" data-surface="scim" data-endpoint="scimModifyUserPut">
+              <span class="method-badge badge-put">PUT</span>modifyUser
+            </li>
+            <li class="endpoint-item" data-surface="scim" data-endpoint="scimModifyUserPatch">
+              <span class="method-badge badge-patch">PATCH</span>modifyUser
+            </li>
+          </ul>
+        </div>
+
+        <!-- MCP Server -->
+        <div class="surface-item" id="surface-mcp">
+          <div class="surface-header" data-surface="mcp">
+            <span class="surface-dot dot-mcp"></span>
+            <div class="surface-header-text">
+              <span class="surface-name">MCP Server</span>
+              <span class="surface-desc">Natural language · Tools</span>
+            </div>
+            <span class="surface-chevron">›</span>
+          </div>
+          <ul class="endpoint-list" id="endpoints-mcp">
+            <li class="endpoint-item" data-surface="mcp" data-endpoint="mcpPrompt">
+              <span class="method-badge badge-mcp">NL</span>prompt
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Notepad -->
+      <div id="sidebar-notepad">
+        <div class="sidebar-section-label">NOTEPAD</div>
+        <textarea
+          id="notepad"
+          placeholder="Paste user IDs, error codes, or notes here..."
+          spellcheck="false"
+        ></textarea>
+        <button id="btn-ask-claude" class="btn-primary btn-full">Ask Claude</button>
+        <div id="notepad-session-label">Session only — not saved</div>
+      </div>
+
+    </aside>
+
+    <!-- ── MAIN WORKSPACE ──────────────────────────────────────────────── -->
+    <main id="workspace">
+
+      <!-- State A: Surface Cards (default view) -->
+      <div id="workspace-cards" class="workspace-state active">
+        <div class="cards-grid">
+
+          <div class="surface-card" data-surface="rest">
+            <div class="card-header">
+              <span class="surface-dot dot-rest"></span>
+              <span class="card-title">Lucid REST API</span>
+            </div>
+            <p class="card-desc">Retrieve and manage user data by user ID or account ID. The foundation of Lucid's API surface.</p>
+            <div class="card-meta">
+              <span class="card-auth-badge">OAuth 2.0 Authorization Code</span>
+              <span class="card-endpoint-count">8 endpoints</span>
+            </div>
+            <button class="btn-primary btn-explore" data-surface="rest">Explore →</button>
+          </div>
+
+          <div class="surface-card" data-surface="scim">
+            <div class="card-header">
+              <span class="surface-dot dot-scim"></span>
+              <span class="card-title">Lucid SCIM API</span>
+            </div>
+            <p class="card-desc">Enterprise user provisioning and attribute management. Follows the SCIM 2.0 schema.</p>
+            <div class="card-meta">
+              <span class="card-auth-badge">Static Bearer Token</span>
+              <span class="card-endpoint-count">5 endpoints</span>
+            </div>
+            <button class="btn-primary btn-explore" data-surface="scim">Explore →</button>
+          </div>
+
+          <div class="surface-card" data-surface="mcp">
+            <div class="card-header">
+              <span class="surface-dot dot-mcp"></span>
+              <span class="card-title">Lucid MCP Server</span>
+            </div>
+            <p class="card-desc">Lucid's newest API surface. Use natural language to search documents, retrieve content, and generate shareable links.</p>
+            <div class="card-meta">
+              <span class="card-auth-badge">OAuth 2.0 + DCR</span>
+              <span class="card-endpoint-count">Natural language</span>
+            </div>
+            <button class="btn-primary btn-explore" data-surface="mcp">Explore →</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- State B: Endpoint Workspace -->
+      <div id="workspace-endpoint" class="workspace-state">
+
+        <!-- Breadcrumb -->
+        <div id="breadcrumb">
+          <button id="btn-back" class="btn-ghost">← Back</button>
+          <span id="breadcrumb-path"></span>
+        </div>
+
+        <!-- Endpoint info card -->
+        <div id="endpoint-info-card">
+          <div id="endpoint-info-header">
+            <span id="endpoint-method-badge" class="method-badge"></span>
+            <span id="endpoint-url"></span>
+          </div>
+          <p id="endpoint-description"></p>
+          <div id="endpoint-meta">
+            <span class="meta-label">Required scope:</span>
+            <span id="endpoint-scope" class="scope-tag"></span>
+            <a id="endpoint-docs-link" href="#" target="_blank" class="docs-link">Lucid Docs ↗</a>
+          </div>
+        </div>
+
+        <!-- Parameter editor -->
+        <div id="param-editor">
+          <div class="param-editor-label">PARAMETERS</div>
+          <div id="param-fields"><!-- populated by app.js --></div>
+        </div>
+
+        <!-- Execute button -->
+        <button id="btn-execute" class="btn-execute">Execute</button>
+
+        <!-- Response viewer -->
+        <div id="response-viewer" class="hidden">
+          <div class="response-header">
+            <span class="response-label">RESPONSE</span>
+            <span id="response-status-badge" class="status-badge"></span>
+            <span id="response-latency" class="response-latency"></span>
+          </div>
+          <pre id="response-json" class="json-viewer"></pre>
+        </div>
+
+      </div>
+
+      <!-- State C: MCP Workspace -->
+      <div id="workspace-mcp" class="workspace-state">
+
+        <div id="breadcrumb-mcp">
+          <button id="btn-back-mcp" class="btn-ghost">← Back</button>
+          <span>MCP Server › Natural Language Prompt</span>
+        </div>
+
+        <div id="mcp-info-card" class="endpoint-info-card">
+          <p>Send a natural language prompt to the Lucid MCP server. Claude will invoke the appropriate tools and return the result. Every tool call is logged in the Terminal tab.</p>
+        </div>
+
+        <div id="mcp-capabilities">
+          <div class="param-editor-label">AVAILABLE CAPABILITIES</div>
+          <ul class="capability-list">
+            <li>Search Lucid documents by keyword or content</li>
+            <li>Retrieve document content and metadata</li>
+            <li>Generate shareable document links</li>
+            <li>List and filter documents in an account</li>
+          </ul>
+        </div>
+
+        <div id="mcp-prompt-area">
+          <div class="param-editor-label">PROMPT</div>
+          <textarea id="mcp-prompt-input" placeholder="e.g. Find all diagrams containing the word 'onboarding' and give me their share links." spellcheck="false"></textarea>
+        </div>
+
+        <button id="btn-mcp-submit" class="btn-execute">Submit</button>
+
+        <div id="mcp-response-viewer" class="hidden">
+          <div class="response-header">
+            <span class="response-label">MCP RESPONSE</span>
+          </div>
+          <pre id="mcp-response-content" class="json-viewer"></pre>
+        </div>
+
+      </div>
+
+    </main>
+
+  </div><!-- /layout -->
+
+  <!-- ── BOTTOM PANEL ────────────────────────────────────────────────────── -->
+  <div id="bottom-panel">
+
+    <div id="panel-tabs">
+      <button class="panel-tab active" data-tab="terminal">Terminal</button>
+      <button class="panel-tab" data-tab="code">Code</button>
+      <button class="panel-tab" data-tab="narrative">Claude Narrative</button>
+    </div>
+
+    <div id="panel-content">
+
+      <!-- Terminal tab -->
+      <div id="tab-terminal" class="tab-pane active">
+        <div id="terminal-output">
+          <span class="terminal-placeholder">No requests yet. Execute an endpoint to see the live HTTP feed.</span>
+        </div>
+        <button id="btn-jump-bottom" class="btn-jump hidden">↓ Jump to bottom</button>
+      </div>
+
+      <!-- Code tab -->
+      <div id="tab-code" class="tab-pane">
+        <div id="code-output">
+          <div class="code-block-wrapper">
+            <div class="code-block-label">cURL</div>
+            <button class="btn-copy" data-target="curl-output">Copy</button>
+            <pre id="curl-output" class="code-block">No request executed yet.</pre>
+          </div>
+          <div class="code-block-wrapper">
+            <div class="code-block-label">Python</div>
+            <button class="btn-copy" data-target="python-output">Copy</button>
+            <pre id="python-output" class="code-block">No request executed yet.</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Claude Narrative tab -->
+      <div id="tab-narrative" class="tab-pane">
+        <div id="narrative-output">
+          <span class="terminal-placeholder">Execute an endpoint and Claude will narrate what happened.</span>
+        </div>
+        <div id="narrative-actions">
+          <button id="btn-get-narrative" class="btn-primary hidden">Get Narrative</button>
+        </div>
+        <div id="narrative-followup-area">
+          <input
+            id="followup-input"
+            type="text"
+            placeholder="Ask a follow-up question..."
+            autocomplete="off"
+          />
+          <button id="btn-followup" class="btn-primary">Ask</button>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /bottom-panel -->
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
