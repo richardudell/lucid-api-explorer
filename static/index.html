@@ -18,13 +18,57 @@
       <span id="app-tagline">REST · SCIM · MCP — powered by Claude</span>
     </div>
     <div id="topbar-center">
-      <span id="auth-status-dot" class="status-dot dot-unauthenticated"></span>
-      <span id="auth-status-label">Not authenticated</span>
+      <button id="token-panel-trigger" class="token-panel-trigger" title="View token state">
+        <span id="auth-status-dot" class="status-dot dot-unauthenticated"></span>
+        <span id="auth-status-label">Not authenticated</span>
+        <span class="token-panel-chevron">▾</span>
+      </button>
+
+      <!-- Token Visibility Panel -->
+      <div id="token-panel" class="hidden">
+        <div class="token-panel-header">Token State</div>
+
+        <div id="token-slot-user" class="token-slot">
+          <div class="token-slot-title">
+            <span class="token-slot-dot dot-user"></span>
+            User Token
+            <span id="token-user-status" class="token-slot-badge">none</span>
+          </div>
+          <div id="token-user-body" class="token-slot-body token-slot-empty">
+            No user token. Click "Auth User Token" to authenticate.
+          </div>
+        </div>
+
+        <div id="token-slot-account" class="token-slot">
+          <div class="token-slot-title">
+            <span class="token-slot-dot dot-account"></span>
+            Account Token
+            <span id="token-account-status" class="token-slot-badge">none</span>
+          </div>
+          <div id="token-account-body" class="token-slot-body token-slot-empty">
+            No account token. Click "Auth Account Token" to authenticate.
+          </div>
+        </div>
+
+        <div id="token-slot-scim" class="token-slot">
+          <div class="token-slot-title">
+            <span class="token-slot-dot dot-scim-panel"></span>
+            SCIM Token
+            <span id="token-scim-status" class="token-slot-badge">none</span>
+          </div>
+          <div id="token-scim-body" class="token-slot-body token-slot-empty">
+            No SCIM token. Set LUCID_SCIM_TOKEN in .env.
+          </div>
+        </div>
+
+        <div class="token-panel-footer">
+          Tokens stored in server memory only — lost on restart
+        </div>
+      </div>
     </div>
     <div id="topbar-right">
       <div id="scope-tags"><!-- populated by app.js --></div>
-      <button id="btn-view-flow" class="btn-ghost hidden" title="View user token OAuth flow">View User Token Auth Flow</button>
-      <button id="btn-view-account-flow" class="btn-ghost hidden" title="View account token OAuth flow">View Account Token Auth Flow</button>
+      <button id="btn-view-flows" class="btn-ghost hidden" title="View token auth flows">View Auth Flows</button>
       <button id="btn-reauth-account" class="btn-ghost" title="Authenticate account token (for createUser, listUsers)">Auth Account Token</button>
       <button id="btn-reauth" class="btn-ghost" title="Authenticate REST API user token">Auth User Token</button>
     </div>
@@ -35,9 +79,20 @@
   <div id="auth-modal-overlay" class="hidden">
     <div id="auth-modal">
       <div id="auth-modal-header">
-        <span id="auth-modal-title">REST API — OAuth 2.0 Authorization Code Flow</span>
-        <!-- title is updated dynamically by app.js for user vs account token flows -->
+        <span id="auth-modal-title">OAuth 2.0 Token Flows</span>
         <button id="auth-modal-close" class="btn-ghost" title="Close">✕</button>
+      </div>
+
+      <!-- Flow type tabs — switch between user token and account token diagrams -->
+      <div id="flow-type-tabs">
+        <button class="flow-type-tab active" data-flow="user" id="flow-tab-user">
+          User Token
+          <span class="flow-tab-status" id="flow-tab-user-status"></span>
+        </button>
+        <button class="flow-type-tab" data-flow="account" id="flow-tab-account">
+          Account Token
+          <span class="flow-tab-status" id="flow-tab-account-status"></span>
+        </button>
       </div>
 
       <p id="auth-modal-intro">
@@ -45,52 +100,85 @@
         Each step shows exactly what was sent and what came back.
       </p>
 
+      <!-- Scope selection panel — shown before OAuth redirect, hidden during/after flow -->
+      <div id="scope-selector" class="hidden">
+        <div id="scope-selector-title">Scopes to request</div>
+        <div id="scope-selector-intro">
+          These are the permissions this app will ask Lucid to grant.
+          Uncheck any you don't need — the consent screen will only show what you select.
+        </div>
+        <button id="btn-select-all-scopes"
+          title="Checks every scope so your token works for all endpoints — no re-auth needed when exploring">
+          ⚡ Select all scopes — easiest for testing (token will work for every endpoint)
+        </button>
+        <div id="scope-list">
+          <!-- Populated dynamically by app.js from /auth/required-scopes -->
+        </div>
+        <div id="scope-selector-footer">
+          <span id="scope-count-label">0 scopes selected</span>
+          <label class="scope-check-all">
+            <input type="checkbox" id="scope-check-all" checked> Select all
+          </label>
+        </div>
+      </div>
+
       <div id="auth-flow-diagram">
-        <!-- Step pills — updated live by app.js -->
-        <div class="flow-step" id="flow-step-1">
-          <div class="flow-step-icon">1</div>
-          <div class="flow-step-body">
-            <div class="flow-step-label">Generate state token</div>
-            <div class="flow-step-detail">A random value to prevent CSRF attacks</div>
-          </div>
-          <div class="flow-step-status">⏳</div>
+
+        <!-- ── Step navigator ── -->
+        <div id="flow-nav">
+          <button id="btn-flow-prev" class="btn-flow-nav" disabled>◄ Back</button>
+          <span id="flow-step-counter">– of 5</span>
+          <button id="btn-flow-next" class="btn-flow-nav" disabled>Next ►</button>
         </div>
-        <div class="flow-connector">↓</div>
-        <div class="flow-step" id="flow-step-2">
-          <div class="flow-step-icon">2</div>
-          <div class="flow-step-body">
-            <div class="flow-step-label">Redirect to Lucid</div>
-            <div class="flow-step-detail">Your browser goes to Lucid's consent screen</div>
+
+        <!-- ── Actor swimlane ── -->
+        <div id="flow-actors">
+
+          <div class="flow-actor" id="actor-browser">
+            <div class="actor-icon">🌐</div>
+            <div class="actor-label">Browser</div>
           </div>
-          <div class="flow-step-status">⏳</div>
-        </div>
-        <div class="flow-connector">↓</div>
-        <div class="flow-step" id="flow-step-3">
-          <div class="flow-step-icon">3</div>
-          <div class="flow-step-body">
-            <div class="flow-step-label">Receive authorization code</div>
-            <div class="flow-step-detail">Lucid sends a one-time code to /callback</div>
+
+          <!-- Track 1: Browser ↔ Server -->
+          <div class="flow-arrow-track" id="flow-track-1">
+            <div class="flow-arrow-line"></div>
+            <div class="flow-packet" id="flow-packet-1"></div>
           </div>
-          <div class="flow-step-status">⏳</div>
-        </div>
-        <div class="flow-connector">↓</div>
-        <div class="flow-step" id="flow-step-4">
-          <div class="flow-step-icon">4</div>
-          <div class="flow-step-body">
-            <div class="flow-step-label">Validate state token</div>
-            <div class="flow-step-detail">Confirm the redirect is genuine, not forged</div>
+
+          <div class="flow-actor" id="actor-server">
+            <div class="actor-icon">⚙</div>
+            <div class="actor-label">Your Server</div>
           </div>
-          <div class="flow-step-status">⏳</div>
-        </div>
-        <div class="flow-connector">↓</div>
-        <div class="flow-step" id="flow-step-5">
-          <div class="flow-step-icon">5</div>
-          <div class="flow-step-body">
-            <div class="flow-step-label">Exchange code for token</div>
-            <div class="flow-step-detail">Server-to-server POST — your secret never leaves the backend</div>
+
+          <!-- Track 2: Server ↔ Lucid -->
+          <div class="flow-arrow-track" id="flow-track-2">
+            <div class="flow-arrow-line"></div>
+            <div class="flow-packet" id="flow-packet-2"></div>
           </div>
-          <div class="flow-step-status">⏳</div>
+
+          <div class="flow-actor" id="actor-lucid">
+            <div class="actor-icon">◈</div>
+            <div class="actor-label">Lucid</div>
+          </div>
+
+        </div><!-- /flow-actors -->
+
+        <!-- ── Step callout ── -->
+        <div id="flow-callout">
+          <div id="flow-callout-header">
+            <span id="flow-callout-step-badge">—</span>
+            <span id="flow-callout-title">Waiting for flow data…</span>
+          </div>
+          <div id="flow-callout-detail"></div>
+          <div id="flow-payload-toggle-row">
+            <button id="btn-payload-toggle" class="btn-ghost btn-payload-toggle hidden">Show payload ▾</button>
+          </div>
+          <div id="flow-payload" class="hidden">
+            <div id="flow-payload-request"></div>
+            <div id="flow-payload-response"></div>
+          </div>
         </div>
+
       </div>
 
       <!-- Error explanation panel — shown only when an error occurs -->
@@ -129,37 +217,113 @@
             <span class="surface-dot dot-rest"></span>
             <div class="surface-header-text">
               <span class="surface-name">REST API</span>
-              <span class="surface-desc">Users · OAuth</span>
+              <span class="surface-desc">Documents · Folders · Users · OAuth</span>
             </div>
             <span class="surface-chevron">›</span>
           </div>
           <ul class="endpoint-list" id="endpoints-rest">
-            <li class="endpoint-group-label">Users</li>
-            <li class="endpoint-item" data-surface="rest" data-endpoint="getUser">
-              <span class="method-badge badge-get">GET</span>getUser
+
+            <!-- Accounts group -->
+            <li class="endpoint-group-header" data-group="accounts">
+              <span class="group-chevron">›</span> Accounts
             </li>
-            <li class="endpoint-item" data-surface="rest" data-endpoint="listUsers">
-              <span class="method-badge badge-get">GET</span>listUsers
+            <ul class="endpoint-sublist" id="group-accounts">
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getAccountInfo">
+                <span class="method-badge badge-get">GET</span>getAccountInfo
+              </li>
+            </ul>
+
+            <!-- Documents group -->
+            <li class="endpoint-group-header" data-group="documents">
+              <span class="group-chevron">›</span> Documents
             </li>
-            <li class="endpoint-item" data-surface="rest" data-endpoint="userEmailSearch">
-              <span class="method-badge badge-get">GET</span>userEmailSearch
+            <ul class="endpoint-sublist" id="group-documents">
+              <li class="endpoint-item" data-surface="rest" data-endpoint="searchAccountDocuments">
+                <span class="method-badge badge-post">POST</span>searchAccountDocuments
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="searchDocuments">
+                <span class="method-badge badge-post">POST</span>searchDocuments
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="createDocument">
+                <span class="method-badge badge-post">POST</span>createDocument
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getDocument">
+                <span class="method-badge badge-get">GET</span>getDocument
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getDocumentContents">
+                <span class="method-badge badge-get">GET</span>getDocumentContents
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="trashDocument">
+                <span class="method-badge badge-post">POST</span>trashDocument
+              </li>
+            </ul>
+
+            <!-- Folders group -->
+            <li class="endpoint-group-header" data-group="folders">
+              <span class="group-chevron">›</span> Folders
             </li>
-            <li class="endpoint-item" data-surface="rest" data-endpoint="getUserProfile">
-              <span class="method-badge badge-get">GET</span>getUserProfile
+            <ul class="endpoint-sublist" id="group-folders">
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getFolder">
+                <span class="method-badge badge-get">GET</span>getFolder
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="createFolder">
+                <span class="method-badge badge-post">POST</span>createFolder
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="updateFolder">
+                <span class="method-badge badge-patch">PATCH</span>updateFolder
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="trashFolder">
+                <span class="method-badge badge-post">POST</span>trashFolder
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="restoreFolder">
+                <span class="method-badge badge-post">POST</span>restoreFolder
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="listFolderContents">
+                <span class="method-badge badge-get">GET</span>listFolderContents
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="listRootFolderContents">
+                <span class="method-badge badge-get">GET</span>listRootFolderContents
+              </li>
+            </ul>
+
+            <!-- Users group -->
+            <li class="endpoint-group-header expanded" data-group="users">
+              <span class="group-chevron">›</span> Users
             </li>
-            <li class="endpoint-item" data-surface="rest" data-endpoint="createUser">
-              <span class="method-badge badge-post">POST</span>createUser
+            <ul class="endpoint-sublist open" id="group-users">
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getUser">
+                <span class="method-badge badge-get">GET</span>getUser
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="listUsers">
+                <span class="method-badge badge-get">GET</span>listUsers
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="userEmailSearch">
+                <span class="method-badge badge-get">GET</span>userEmailSearch
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getUserProfile">
+                <span class="method-badge badge-get">GET</span>getUserProfile
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="createUser">
+                <span class="method-badge badge-post">POST</span>createUser
+              </li>
+            </ul>
+
+            <!-- OAuth Tokens group -->
+            <li class="endpoint-group-header expanded" data-group="oauth">
+              <span class="group-chevron">›</span> OAuth Tokens
             </li>
-            <li class="endpoint-group-label">OAuth Tokens</li>
-            <li class="endpoint-item" data-surface="rest" data-endpoint="refreshAccessToken">
-              <span class="method-badge badge-post">POST</span>refreshAccessToken
-            </li>
-            <li class="endpoint-item" data-surface="rest" data-endpoint="introspectAccessToken">
-              <span class="method-badge badge-post">POST</span>introspectAccessToken
-            </li>
-            <li class="endpoint-item" data-surface="rest" data-endpoint="revokeAccessToken">
-              <span class="method-badge badge-post">POST</span>revokeAccessToken
-            </li>
+            <ul class="endpoint-sublist open" id="group-oauth">
+              <li class="endpoint-item" data-surface="rest" data-endpoint="refreshAccessToken">
+                <span class="method-badge badge-post">POST</span>refreshAccessToken
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="introspectAccessToken">
+                <span class="method-badge badge-post">POST</span>introspectAccessToken
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="revokeAccessToken">
+                <span class="method-badge badge-post">POST</span>revokeAccessToken
+              </li>
+            </ul>
+
           </ul>
         </div>
 

@@ -86,6 +86,212 @@ const ENDPOINTS = {
     ],
   },
 
+  // ── Accounts ────────────────────────────────────────────────────────────────
+  getAccountInfo: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getAccountInfo',
+    urlTemplate: 'https://api.lucid.co/accounts/me',
+    description: 'Returns basic account information for the authenticated account (name, ID, plan type).',
+    scope: 'account.info',
+    docsUrl: 'https://developer.lucid.co/reference/getaccountinformation',
+    params: [],
+  },
+
+  // ── Documents ────────────────────────────────────────────────────────────────
+  searchAccountDocuments: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'searchAccountDocuments',
+    urlTemplate: 'https://api.lucid.co/accounts/me/documents/search',
+    description: 'Search all documents in the account (Enterprise Shield only). Requires an account token with admin document scope.',
+    scope: 'lucidchart.document.content:admin.readonly',
+    docsUrl: 'https://developer.lucid.co/reference/searchaccountdocuments',
+    params: [
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: false,
+        hint: 'Optional filter criteria. Leave blank to return all account documents.',
+        placeholder: '{\n  "keywords": "my diagram"\n}',
+      },
+    ],
+  },
+  searchDocuments: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'searchDocuments',
+    urlTemplate: 'https://api.lucid.co/documents/search',
+    description: "Search documents accessible to the authenticated user. When 'keywords' is provided, results are sorted by relevance.",
+    scope: 'lucidchart.document.content:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/searchdocuments',
+    params: [
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: false,
+        hint: 'Optional filter criteria. Leave blank to return all accessible documents.',
+        placeholder: '{\n  "keywords": "architecture diagram"\n}',
+      },
+    ],
+  },
+  createDocument: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'createDocument',
+    urlTemplate: 'https://api.lucid.co/documents',
+    description: "Create a new Lucidchart or Lucidspark document. Use 'product' to specify which app.",
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/createorcopyorimportdocument',
+    params: [
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Must include title and product. Optionally include parent folder ID.',
+        placeholder: '{\n  "title": "My New Diagram",\n  "product": "lucidchart"\n}',
+      },
+    ],
+  },
+  getDocument: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getDocument',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}',
+    description: 'Get metadata for a document by ID — title, owner, product, timestamps, and export links.',
+    scope: 'lucidchart.document.content:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/getorexportdocument',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier (e.g. a1b2c3d4-...)' },
+    ],
+  },
+  getDocumentContents: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getDocumentContents',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/contents',
+    description: 'Retrieve the full structured content (pages, shapes, connectors) of a document.',
+    scope: 'lucidchart.document.content:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/getdocumentcontent',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+    ],
+  },
+  trashDocument: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'trashDocument',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/trash',
+    description: "Move a document to the authenticated user's trash. Shared documents remain accessible to others.",
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/trashdocument',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+    ],
+  },
+
+  // ── Folders ──────────────────────────────────────────────────────────────────
+  getFolder: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getFolder',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}',
+    description: 'Get metadata for a folder by ID — name, owner, parent folder, and timestamps.',
+    scope: 'folder:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/getfolder',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier (e.g. 123456)' },
+    ],
+  },
+  createFolder: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'createFolder',
+    urlTemplate: 'https://api.lucid.co/folders',
+    description: 'Create a new folder. Optionally specify a parent folder ID to nest it.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/createfolder',
+    params: [
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Must include name. Optionally include parentId.',
+        placeholder: '{\n  "name": "My New Folder"\n}',
+      },
+    ],
+  },
+  updateFolder: {
+    surface: 'rest',
+    method: 'PATCH',
+    label: 'updateFolder',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}',
+    description: 'Update a folder — rename it or move it to a new parent. Moving preserves all contents.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/updatefolder',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Fields to update: name and/or parent (numeric folder ID).',
+        placeholder: '{\n  "name": "Renamed Folder"\n}',
+      },
+    ],
+  },
+  trashFolder: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'trashFolder',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/trash',
+    description: 'Move a folder and all of its contents to the trash.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/trashfolder',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+    ],
+  },
+  restoreFolder: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'restoreFolder',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/restore',
+    description: 'Restore a trashed folder and all its contents to their original location.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/restorefolder',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+    ],
+  },
+  listFolderContents: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'listFolderContents',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/contents',
+    description: 'List all documents and sub-folders directly inside a given folder.',
+    scope: 'folder:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/listfoldercontents',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+    ],
+  },
+  listRootFolderContents: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'listRootFolderContents',
+    urlTemplate: 'https://api.lucid.co/folders/root/contents',
+    description: "List documents and folders in the authenticated user's root folder. No ID needed.",
+    scope: 'folder:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/listrootfoldercontents',
+    params: [],
+  },
+
   // OAuth Token Management
   refreshAccessToken: {
     surface: 'rest',
@@ -267,7 +473,6 @@ const authLabel         = $('#auth-status-label');
 const scopeTagsEl       = $('#scope-tags');
 const btnReauth         = $('#btn-reauth');
 const btnReauthAccount  = $('#btn-reauth-account');
-const btnViewAccountFlow = $('#btn-view-account-flow');
 
 // Workspace
 const wsCards      = $('#workspace-cards');
@@ -370,20 +575,17 @@ async function handleOAuthRedirect() {
   window.history.replaceState({}, '', '/');
 
   if (success || error) {
-    // Render the user token flow into the Terminal tab
     switchTab('terminal');
     await renderOAuthFlowInTerminal();
-    btnViewFlow.classList.remove('hidden');
-    await openAuthModalWithResults();
+    btnViewFlows.classList.remove('hidden');
+    await openAuthModalViewer('user');
   }
 
   if (accountSuccess || accountError) {
-    // Render the account token flow into the Terminal tab
     switchTab('terminal');
     await renderAccountOAuthFlowInTerminal();
-    btnViewAccountFlow.classList.remove('hidden');
-    // Open the modal with results — same modal, account flow type
-    await openAuthModalWithResults('account');
+    btnViewFlows.classList.remove('hidden');
+    await openAuthModalViewer('account');
   }
 }
 
@@ -473,7 +675,7 @@ async function renderOAuthFlowInTerminal() {
       const errorStep = data.steps.find(s => s.status === 'error');
       const errorMsg = errorStep ? errorStep.label : 'Authentication failed';
       addTerminalLine(new Date().toLocaleTimeString(), `✗ ${errorMsg}`, 'err');
-      addTerminalLine('', '  Click "Re-auth REST" to try again.', 'err');
+      addTerminalLine('', '  Use the auth buttons in the topbar to try again.', 'err');
     }
 
   } catch (err) {
@@ -540,22 +742,441 @@ async function renderAccountOAuthFlowInTerminal() {
   }
 }
 
-// ── Auth Flow Modal ────────────────────────────────────────────────────────────
+// ── Auth Flow Modal — Step-Through Explorer ───────────────────────────────────
+//
 // Single modal reused for both user token and account token flows.
 // _modalFlowType controls which flow it shows: 'user' or 'account'.
+//
+// The diagram shows three actors: Browser | Your Server | Lucid
+// Each step animates a labelled "packet" travelling between the relevant pair.
+// Steps 1 & 4 are "internal" (server-only) — they pulse the server actor.
+// Step 5 animates a two-part exchange: server→Lucid then Lucid→server.
+//
+// Real payload data (from /auth/flow-status) is shown in a collapsible panel
+// below the diagram. Step 2's auth URL is rendered with colour-annotated params.
 
 const authModalOverlay  = $('#auth-modal-overlay');
 const authModalTitle    = $('#auth-modal-title');
 const btnOpenLucid      = $('#btn-open-lucid');
 const btnRetryAuth      = $('#btn-retry-auth');
 const btnAuthClose      = $('#auth-modal-close');
-const btnViewFlow       = $('#btn-view-flow');
+const btnViewFlows      = $('#btn-view-flows');   // single unified button
 const authErrorPanel    = $('#auth-error-panel');
 const authErrorDetail   = $('#auth-error-detail');
 const authSuccessPanel  = $('#auth-success-panel');
 const authSuccessDetail = $('#auth-success-detail');
 
-let _modalFlowType = 'user'; // 'user' | 'account'
+// Keep these const refs alive (used for show/hide logic elsewhere in file)
+const btnViewFlow        = btnViewFlows; // alias — code still references btnViewFlow
+const btnViewAccountFlow = btnViewFlows; // alias
+
+let _modalFlowType  = 'user'; // 'user' | 'account' — which tab is active
+let _modalButtonMode = 'launch'; // 'launch' | 'close' | 'retry'
+
+// Per-flow cached data — so switching tabs doesn't re-fetch
+const _flowCache = { user: null, account: null };
+
+// ── Diagram state ──────────────────────────────────────────────────────────────
+let _diagramSteps   = [];  // step objects from /auth/flow-status
+let _diagramCurrent = 0;   // 0-indexed current step
+let _diagAnimTimer  = null; // active animation timeout — cleared on nav
+
+// ── Step config table ──────────────────────────────────────────────────────────
+// Maps each step index (0-based) to: which actors are involved, which arrow
+// track to use, which direction the packet travels, and what colour to use.
+//
+// track: 1 = Browser↔Server lane, 2 = Server↔Lucid lane
+// dir:   'right' = left→right (toward Lucid), 'left' = right→left, 'internal' = no packet
+const FLOW_STEP_CONFIG = [
+  // Step 1 — server generates CSRF state token (internal)
+  { dir: 'internal', actor: 'server', track: null,
+    defaultLabel:  'State token generated',
+    defaultDetail: 'A cryptographically random value stored in server memory to prevent CSRF attacks.' },
+  // Step 2 — server builds auth URL and 302-redirects browser toward Lucid
+  { dir: 'left', track: 1, from: 'server', to: 'browser', packetClass: 'packet-redirect',
+    defaultLabel:  'Browser redirected to Lucid',
+    defaultDetail: "Your server builds the authorization URL and returns a 302 redirect. Your browser follows it to Lucid's consent screen." },
+  // Step 3 — Lucid redirects browser back with code; browser delivers it to server
+  { dir: 'left', track: 2, from: 'lucid', to: 'server', packetClass: 'packet-code',
+    defaultLabel:  'Authorization code received',
+    defaultDetail: 'After consent, Lucid sends a one-time authorization code to /callback. This code is short-lived (≈60s) and single-use.' },
+  // Step 4 — server validates state param (internal)
+  { dir: 'internal', actor: 'server', track: null,
+    defaultLabel:  'State token validated',
+    defaultDetail: 'The state param Lucid echoed back is compared to what was stored. A mismatch means the redirect was forged — CSRF blocked.' },
+  // Step 5 — server exchanges code for token with Lucid (two-phase: out then back)
+  { dir: 'right', track: 2, from: 'server', to: 'lucid', packetClass: 'packet-token',
+    defaultLabel:  'Token exchange',
+    defaultDetail: 'Server-to-server POST to Lucid\'s token endpoint. The client_secret travels here — it never touches the browser. Lucid returns an access token.' },
+];
+
+// ── DOM refs (diagram elements) ────────────────────────────────────────────────
+// These are grabbed lazily inside initFlowDiagram() because they only exist
+// after the modal HTML is in the DOM.
+
+let _actorBrowser, _actorServer, _actorLucid;
+let _packet1, _packet2;
+let _btnPrev, _btnNext;
+let _counterEl;
+let _calloutEl, _calloutBadge, _calloutTitle, _calloutDetail;
+let _payloadToggleBtn, _payloadEl, _payloadRequest, _payloadResponse;
+let _payloadOpen = false;
+
+function _grabDiagramRefs() {
+  _actorBrowser  = $('#actor-browser');
+  _actorServer   = $('#actor-server');
+  _actorLucid    = $('#actor-lucid');
+  _packet1       = $('#flow-packet-1');
+  _packet2       = $('#flow-packet-2');
+  _btnPrev       = $('#btn-flow-prev');
+  _btnNext       = $('#btn-flow-next');
+  _counterEl     = $('#flow-step-counter');
+  _calloutEl     = $('#flow-callout');
+  _calloutBadge  = $('#flow-callout-step-badge');
+  _calloutTitle  = $('#flow-callout-title');
+  _calloutDetail = $('#flow-callout-detail');
+  _payloadToggleBtn = $('#btn-payload-toggle');
+  _payloadEl        = $('#flow-payload');
+  _payloadRequest   = $('#flow-payload-request');
+  _payloadResponse  = $('#flow-payload-response');
+}
+
+// ── Init diagram ───────────────────────────────────────────────────────────────
+// Called every time the modal opens, before renderStep().
+
+function initFlowDiagram(steps) {
+  _grabDiagramRefs();
+  _diagramSteps   = steps || [];
+  _diagramCurrent = 0;
+  _payloadOpen    = false;
+
+  // Wire nav buttons (remove old listeners by cloning)
+  const newPrev = _btnPrev.cloneNode(true);
+  const newNext = _btnNext.cloneNode(true);
+  _btnPrev.replaceWith(newPrev);
+  _btnNext.replaceWith(newNext);
+  _btnPrev = newPrev;
+  _btnNext = newNext;
+  _btnPrev.addEventListener('click', _retreatStep);
+  _btnNext.addEventListener('click', _advanceStep);
+
+  // Wire payload toggle
+  const newToggle = _payloadToggleBtn.cloneNode(true);
+  _payloadToggleBtn.replaceWith(newToggle);
+  _payloadToggleBtn = newToggle;
+  _payloadToggleBtn.addEventListener('click', _togglePayload);
+
+  // Reset all actors
+  [_actorBrowser, _actorServer, _actorLucid].forEach(a => {
+    a.classList.remove('actor-active', 'actor-arrived', 'actor-pulse');
+  });
+
+  // Reset both packets
+  [_packet1, _packet2].forEach(p => {
+    p.className = 'flow-packet';
+    p.textContent = '';
+  });
+
+  // Collapse payload
+  _payloadEl.classList.add('hidden');
+  _payloadToggleBtn.textContent = 'Show payload ▾';
+
+  renderStep(0);
+}
+
+// ── Step renderer ──────────────────────────────────────────────────────────────
+
+function renderStep(idx) {
+  _diagramCurrent = idx;
+  const total = FLOW_STEP_CONFIG.length;
+  const cfg   = FLOW_STEP_CONFIG[idx];
+  const data  = _diagramSteps[idx]; // may be undefined if no flow run yet
+
+  // Update counter
+  _counterEl.textContent = `Step ${idx + 1} of ${total}`;
+
+  // Update nav button states
+  _btnPrev.disabled = (idx === 0);
+  _btnNext.disabled = (idx === total - 1);
+
+  // Clear actor states
+  [_actorBrowser, _actorServer, _actorLucid].forEach(a => {
+    a.classList.remove('actor-active', 'actor-arrived', 'actor-pulse');
+  });
+
+  // Hide both packets immediately (opacity 0, no transition)
+  [_packet1, _packet2].forEach(p => {
+    p.classList.remove('packet-visible', 'packet-redirect', 'packet-code', 'packet-token');
+    p.style.transition = 'none';
+    p.style.left = '0%';
+    p.textContent = '';
+  });
+
+  // Clear any running animation
+  if (_diagAnimTimer) { clearTimeout(_diagAnimTimer); _diagAnimTimer = null; }
+
+  // ── Internal step (1 or 4) ──────────────────────────────────────────────────
+  if (cfg.dir === 'internal') {
+    const actor = cfg.actor === 'server' ? _actorServer : _actorBrowser;
+    actor.classList.add('actor-pulse');
+    _calloutEl.className = 'callout-pending';
+    _calloutBadge.textContent = `STEP ${idx + 1}`;
+
+  // ── Packet animation ────────────────────────────────────────────────────────
+  } else {
+    const packet  = cfg.track === 1 ? _packet1 : _packet2;
+    const fromActor = _actorForId(cfg.from);
+    const toActor   = _actorForId(cfg.to);
+
+    // Build packet label from real data, or fall back to default
+    const packetLabel = _packetLabel(idx, data);
+
+    // Special handling: step 5 has a two-phase animation (server→Lucid POST, Lucid→server response)
+    if (idx === 4) {
+      _animateStep5(packet, fromActor, toActor, data);
+    } else {
+      fromActor.classList.add('actor-active');
+
+      // Position packet at start (suppress transition)
+      const startPct = cfg.dir === 'right' ? '0%' : '92%';
+      const endPct   = cfg.dir === 'right' ? '88%' : '4%';
+
+      packet.textContent = packetLabel;
+      if (cfg.packetClass) packet.classList.add(cfg.packetClass);
+      packet.style.transition = 'none';
+      packet.style.left = startPct;
+
+      // rAF double-frame trick: let browser settle position before enabling transition
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        packet.style.transition = 'left 0.65s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
+        packet.classList.add('packet-visible');
+        packet.style.left = endPct;
+
+        _diagAnimTimer = setTimeout(() => {
+          fromActor.classList.remove('actor-active');
+          toActor.classList.add('actor-arrived');
+          _calloutEl.className = 'callout-ok';
+        }, 680);
+      }));
+    }
+  }
+
+  // ── Callout ─────────────────────────────────────────────────────────────────
+  _calloutBadge.textContent = `STEP ${idx + 1}`;
+  _calloutTitle.textContent  = data ? data.label  : cfg.defaultLabel;
+  _calloutDetail.textContent = data ? data.detail : cfg.defaultDetail;
+
+  // ── Payload panel ────────────────────────────────────────────────────────────
+  _renderPayload(idx, data);
+}
+
+// ── Step 5 two-phase animation (POST out → token back) ─────────────────────────
+
+function _animateStep5(packet, fromActor, toActor, data) {
+  fromActor.classList.add('actor-active');
+
+  // Phase 1: server → Lucid (POST /token)
+  const postLabel = 'POST /oauth2/token';
+  packet.textContent = postLabel;
+  packet.classList.add('packet-token');
+  packet.style.transition = 'none';
+  packet.style.left = '0%';
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    packet.style.transition = 'left 0.65s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
+    packet.classList.add('packet-visible');
+    packet.style.left = '88%';
+
+    _diagAnimTimer = setTimeout(() => {
+      // Packet arrives at Lucid
+      fromActor.classList.remove('actor-active');
+      toActor.classList.add('actor-active');
+
+      // Brief pause then return with token
+      _diagAnimTimer = setTimeout(() => {
+        const tokenLabel = _tokenPreviewFromData(data);
+        packet.textContent = tokenLabel;
+        packet.classList.remove('packet-token');
+        packet.classList.add('packet-code'); // green for "got the token"
+        packet.style.transition = 'none';
+        packet.style.left = '92%';
+
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          packet.style.transition = 'left 0.65s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
+          packet.style.left = '4%';
+
+          _diagAnimTimer = setTimeout(() => {
+            toActor.classList.remove('actor-active');
+            fromActor.classList.add('actor-arrived');
+            _calloutEl.className = 'callout-ok';
+          }, 680);
+        }));
+      }, 500);
+    }, 680);
+  }));
+}
+
+function _tokenPreviewFromData(data) {
+  if (!data) return 'access_token ••••';
+  const resp = data.response || {};
+  const tok  = resp.access_token;
+  if (tok && typeof tok === 'string') return tok.replace(/••+.*/, '••••');
+  return 'access_token ••••';
+}
+
+// ── Payload panel renderer ─────────────────────────────────────────────────────
+
+function _renderPayload(idx, data) {
+  if (!data || (!data.request && !data.response)) {
+    _payloadToggleBtn.classList.add('hidden');
+    _payloadEl.classList.add('hidden');
+    _payloadOpen = false;
+    return;
+  }
+
+  _payloadToggleBtn.classList.remove('hidden');
+  _payloadToggleBtn.textContent = _payloadOpen ? 'Hide payload ▴' : 'Show payload ▾';
+
+  // Request section
+  if (data.request) {
+    _payloadRequest.innerHTML = _buildPayloadSection(
+      '▲ sent', 'label-request', idx, data.request
+    );
+  } else {
+    _payloadRequest.innerHTML = '';
+  }
+
+  // Response section
+  if (data.response) {
+    _payloadResponse.innerHTML = _buildPayloadSection(
+      '▼ received', 'label-response', idx, data.response
+    );
+  } else {
+    _payloadResponse.innerHTML = '';
+  }
+}
+
+function _buildPayloadSection(label, labelClass, stepIdx, obj) {
+  let html = `<div class="payload-section">`;
+  html += `<div class="payload-section-label ${labelClass}">${label}</div>`;
+
+  if (typeof obj !== 'object' || obj === null) {
+    html += `<div class="payload-row"><span class="payload-val">${escapeHtml(String(obj))}</span></div>`;
+    html += `</div>`;
+    return html;
+  }
+
+  for (const [k, v] of Object.entries(obj)) {
+    const valStr = typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
+
+    // Special treatment: annotate the auth URL in step 2's request.url
+    if (stepIdx === 1 && k === 'url' && valStr.includes('oauth2/authorize')) {
+      html += `<div class="payload-row">`;
+      html += `<span class="payload-key">${escapeHtml(k)}</span>`;
+      html += `<span class="payload-val">${_renderAnnotatedUrl(valStr)}</span>`;
+      html += `</div>`;
+    } else {
+      html += `<div class="payload-row">`;
+      html += `<span class="payload-key">${escapeHtml(k)}</span>`;
+      html += `<span class="payload-val">${escapeHtml(valStr)}</span>`;
+      html += `</div>`;
+    }
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+// ── Annotated auth URL renderer ────────────────────────────────────────────────
+// Breaks the URL into base + colour-coded query params. Each param key-value
+// gets a colour tied to its OAuth meaning.
+
+const URL_PARAM_CLASSES = {
+  'client_id':     'upv-client-id',
+  'scope':         'upv-scope',
+  'redirect_uri':  'upv-redirect-uri',
+  'state':         'upv-state',
+  'response_type': 'upv-response-type',
+};
+
+function _renderAnnotatedUrl(rawUrl) {
+  let urlObj;
+  try { urlObj = new URL(rawUrl); } catch (_) {
+    return escapeHtml(rawUrl); // fallback — render plain
+  }
+
+  const base = escapeHtml(urlObj.origin + urlObj.pathname);
+  let html = `<div class="url-block">`;
+  html += `<span class="url-base-line">${base}</span>`;
+  html += `<div class="url-params-list">`;
+
+  let first = true;
+  urlObj.searchParams.forEach((val, key) => {
+    const prefix = first ? '?' : '&amp;';
+    first = false;
+    const cls = URL_PARAM_CLASSES[key] || 'upv-response-type';
+    const decodedVal = decodeURIComponent(val);
+    html += `<div class="url-param-row">`;
+    html += `<span class="url-amp">${prefix}</span>`;
+    html += `<span class="url-pkey">${escapeHtml(key)}</span>`;
+    html += `<span class="url-equals">=</span>`;
+    html += `<span class="${cls}">${escapeHtml(decodedVal)}</span>`;
+    html += `</div>`;
+  });
+
+  html += `</div></div>`;
+  return html;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function _actorForId(id) {
+  return { browser: _actorBrowser, server: _actorServer, lucid: _actorLucid }[id];
+}
+
+function _packetLabel(idx, data) {
+  // Try to extract a meaningful short label from real data
+  if (!data) return FLOW_STEP_CONFIG[idx].defaultLabel;
+  const req  = data.request  || {};
+  const resp = data.response || {};
+
+  switch (idx) {
+    case 0: { // State token — show truncated value
+      const tok = resp.state_token || '';
+      return tok ? `state: ${tok}` : 'state token';
+    }
+    case 1: { // 302 redirect — show short URL hint
+      return '302 → auth URL';
+    }
+    case 2: { // Code received
+      const code = resp.code || '';
+      return code ? `code: ${code}` : 'auth code';
+    }
+    case 3: { // State validated
+      return resp.csrf_check === 'passed' ? 'state ✓ matched' : 'state check';
+    }
+    case 4: { // Token exchange — handled separately in _animateStep5
+      return 'POST /oauth2/token';
+    }
+    default: return FLOW_STEP_CONFIG[idx].defaultLabel;
+  }
+}
+
+function _togglePayload() {
+  _payloadOpen = !_payloadOpen;
+  _payloadEl.classList.toggle('hidden', !_payloadOpen);
+  _payloadToggleBtn.textContent = _payloadOpen ? 'Hide payload ▴' : 'Show payload ▾';
+}
+
+function _advanceStep() {
+  if (_diagramCurrent < FLOW_STEP_CONFIG.length - 1) renderStep(_diagramCurrent + 1);
+}
+
+function _retreatStep() {
+  if (_diagramCurrent > 0) renderStep(_diagramCurrent - 1);
+}
+
+// ── Modal open/close ───────────────────────────────────────────────────────────
 
 function _flowStatusUrl() {
   return _modalFlowType === 'account' ? '/auth/account-flow-status' : '/auth/flow-status';
@@ -565,148 +1186,351 @@ function _flowAuthRoute() {
   return _modalFlowType === 'account' ? '/auth/lucid-account' : '/auth/lucid';
 }
 
-function _flowTitle() {
-  return _modalFlowType === 'account'
-    ? 'REST API — OAuth 2.0 Account Token Flow'
-    : 'REST API — OAuth 2.0 Authorization Code Flow';
+// ── Flow tab helpers ───────────────────────────────────────────────────────────
+
+// Switch the active flow-type tab and re-render the diagram for that flow.
+// Fetches from the server if we don't have a cached result yet.
+async function switchFlowTab(flowType) {
+  _modalFlowType = flowType;
+
+  // Update tab active state
+  $$('.flow-type-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.flow === flowType);
+  });
+
+  // Update intro text and action button label to match the selected flow
+  _updateModalIntro(flowType);
+
+  // Use cached data if available, otherwise fetch
+  if (_flowCache[flowType]) {
+    _applyFlowData(_flowCache[flowType]);
+  } else {
+    initFlowDiagram([]);  // show empty diagram while loading
+    authErrorPanel.classList.add('hidden');
+    authSuccessPanel.classList.add('hidden');
+    try {
+      const res = await fetch(_flowStatusUrl());
+      if (!res.ok) return;
+      const data = await res.json();
+      _flowCache[flowType] = data;
+      _applyFlowData(data);
+    } catch (_) {}
+  }
 }
 
-// Open modal in "fresh" state — all steps pending, ready to launch
-function openAuthModalFresh(flowType = 'user') {
-  _modalFlowType = flowType;
-  authModalTitle.textContent = _flowTitle();
+function _updateModalIntro(flowType) {
+  const introEl = $('#auth-modal-intro');
+  if (flowType === 'account') {
+    introEl.innerHTML = '<strong>OAuth 2.0 Account Token Flow</strong> — uses <code>oauth2/authorizeAccount</code>. ' +
+      'Produces an account-admin token needed for createUser, listUsers, and other admin operations.';
+  } else {
+    introEl.innerHTML = '<strong>OAuth 2.0 Authorization Code Flow</strong> — step-by-step. ' +
+      'Each step shows exactly what was sent and what came back.';
+  }
+}
+
+// Apply fetched flow-status data to the modal (diagram + panels)
+function _applyFlowData(data) {
+  initFlowDiagram(data.steps || []);
   authErrorPanel.classList.add('hidden');
   authSuccessPanel.classList.add('hidden');
   btnRetryAuth.classList.add('hidden');
-  // Reset all step pills to pending
-  for (let i = 1; i <= 5; i++) {
-    const el = $(`#flow-step-${i}`);
-    if (!el) continue;
-    el.className = 'flow-step';
-    el.querySelector('.flow-step-status').textContent = '⏳';
-    el.querySelector('.flow-step-label').textContent = _defaultStepLabel(i);
-    el.querySelector('.flow-step-detail').textContent = _defaultStepDetail(i);
+
+  if (data.authenticated) {
+    authSuccessPanel.classList.remove('hidden');
+    const scopes  = (data.scopes || []).length ? data.scopes.join(', ') : 'unknown';
+    const expires = data.expires_at
+      ? ` Expires at ${new Date(data.expires_at + 'Z').toLocaleTimeString()}.` : '';
+    authSuccessDetail.textContent =
+      `Access token stored in server memory. Scopes granted: ${scopes}.${expires} ` +
+      `Token disappears on server restart — nothing written to disk.`;
+    btnOpenLucid.textContent = 'Close';
+    btnOpenLucid.disabled = false;
+    _modalButtonMode = 'close';
+
+  } else if (data.steps && data.steps.some(s => s.status === 'error')) {
+    const errorStep = data.steps.find(s => s.status === 'error');
+    authErrorPanel.classList.remove('hidden');
+    $('#auth-error-label').textContent = `⚠ ${errorStep.label}`;
+    authErrorDetail.textContent = errorStep.detail;
+    btnRetryAuth.classList.remove('hidden');
+    btnOpenLucid.textContent = 'Try again →';
+    btnOpenLucid.disabled = false;
+    _modalButtonMode = 'retry';
+    const errIdx = data.steps.indexOf(errorStep);
+    if (errIdx >= 0) renderStep(errIdx);
+
+  } else {
+    // No flow run yet for this type
+    btnOpenLucid.textContent = `Auth ${_modalFlowType === 'account' ? 'Account' : 'User'} Token →`;
+    btnOpenLucid.disabled = false;
+    _modalButtonMode = 'launch';
   }
-  btnOpenLucid.textContent = 'Open Lucid consent screen →';
-  btnOpenLucid.disabled = false;
-  _modalButtonMode = 'launch';
-  authModalOverlay.classList.remove('hidden');
 }
 
-// Open modal populated with the last flow result from the server
-async function openAuthModalWithResults(flowType = 'user') {
-  _modalFlowType = flowType;
-  authModalTitle.textContent = _flowTitle();
-  authModalOverlay.classList.remove('hidden');
-  try {
-    const res = await fetch(_flowStatusUrl());
-    if (!res.ok) return;
-    const data = await res.json();
-    renderFlowSteps(data.steps);
+// Update the tab status badges (✓ or blank) based on server auth state
+function _updateFlowTabBadges(authStatus) {
+  const userOk    = authStatus?.rest?.authenticated;
+  const accountOk = authStatus?.rest_account?.authenticated;
+  const userBadge    = $('#flow-tab-user-status');
+  const accountBadge = $('#flow-tab-account-status');
+  if (userBadge)    userBadge.textContent    = userOk    ? '✓' : '';
+  if (accountBadge) accountBadge.textContent = accountOk ? '✓' : '';
+}
 
-    if (data.authenticated) {
-      authSuccessPanel.classList.remove('hidden');
-      authErrorPanel.classList.add('hidden');
-      const scopes = data.scopes.length ? data.scopes.join(', ') : 'unknown';
-      const expires = data.expires_at
-        ? ` Expires at ${new Date(data.expires_at).toLocaleTimeString()}.` : '';
-      authSuccessDetail.textContent =
-        `Access token stored in server memory. Scopes granted: ${scopes}.${expires} ` +
-        `Token disappears on server restart — nothing written to disk.`;
-      btnOpenLucid.textContent = 'Close';
-      btnOpenLucid.disabled = false;
-      _modalButtonMode = 'close';
-      btnRetryAuth.classList.add('hidden');
-    } else if (data.steps.some(s => s.status === 'error')) {
-      const errorStep = data.steps.find(s => s.status === 'error');
-      authErrorPanel.classList.remove('hidden');
-      authSuccessPanel.classList.add('hidden');
-      $('#auth-error-label').textContent = `⚠ ${errorStep.label}`;
-      authErrorDetail.textContent = errorStep.detail;
-      btnRetryAuth.classList.remove('hidden');
-      btnOpenLucid.textContent = 'Try again →';
-      btnOpenLucid.disabled = false;
-      _modalButtonMode = 'retry';
-    } else {
-      // No completed flow yet
-      btnOpenLucid.textContent = 'Close';
-      btnOpenLucid.disabled = false;
-      _modalButtonMode = 'close';
-    }
-  } catch (_) {}
+// ── Modal open/close ───────────────────────────────────────────────────────────
+
+// Open modal in "fresh" state — no flow data yet, about to redirect
+function openAuthModalFresh(flowType = 'user') {
+  _modalFlowType = flowType;
+  authErrorPanel.classList.add('hidden');
+  authSuccessPanel.classList.add('hidden');
+  btnRetryAuth.classList.add('hidden');
+
+  // Show scope selector before the redirect; hide the flow diagram
+  // (diagram is revealed after the user clicks "Authorize" and we redirect)
+  $('#scope-selector').classList.remove('hidden');
+  $('#auth-flow-diagram').classList.add('hidden');
+
+  btnOpenLucid.textContent = 'Authorize with selected scopes →';
+  btnOpenLucid.disabled = false;
+  _modalButtonMode = 'scope-select';
+  authModalOverlay.classList.remove('hidden');
+  _updateModalIntro(flowType);
+  $$('.flow-type-tab').forEach(t => t.classList.toggle('active', t.dataset.flow === flowType));
+  // Don't call initFlowDiagram([]) yet — diagram is hidden until after redirect
+}
+
+// Open the modal on the "View Auth Flows" button — always shows both tabs,
+// defaults to opening on the tab that was most recently authed (or 'user').
+async function openAuthModalViewer(preferTab = 'user') {
+  // Clear the cache so we get fresh data
+  _flowCache.user    = null;
+  _flowCache.account = null;
+
+  // Viewer mode always shows the flow diagram, never the scope selector
+  $('#scope-selector').classList.add('hidden');
+  $('#auth-flow-diagram').classList.remove('hidden');
+
+  authModalOverlay.classList.remove('hidden');
+
+  // Fetch both flows in parallel to populate tab badges
+  const [userRes, acctRes] = await Promise.allSettled([
+    fetch('/auth/flow-status'),
+    fetch('/auth/account-flow-status'),
+  ]);
+
+  if (userRes.status === 'fulfilled' && userRes.value.ok)
+    _flowCache.user = await userRes.value.json();
+  if (acctRes.status === 'fulfilled' && acctRes.value.ok)
+    _flowCache.account = await acctRes.value.json();
+
+  // Update tab badges based on auth state
+  _updateFlowTabBadges({
+    rest:         _flowCache.user    ? { authenticated: _flowCache.user.authenticated }    : null,
+    rest_account: _flowCache.account ? { authenticated: _flowCache.account.authenticated } : null,
+  });
+
+  // Show on the preferred tab
+  _modalFlowType = preferTab;
+  $$('.flow-type-tab').forEach(t => t.classList.toggle('active', t.dataset.flow === preferTab));
+  _updateModalIntro(preferTab);
+  if (_flowCache[preferTab]) {
+    _applyFlowData(_flowCache[preferTab]);
+  } else {
+    initFlowDiagram([]);
+    btnOpenLucid.textContent = `Auth ${preferTab === 'account' ? 'Account' : 'User'} Token →`;
+    btnOpenLucid.disabled = false;
+    _modalButtonMode = 'launch';
+  }
 }
 
 function closeAuthModal() {
   authModalOverlay.classList.add('hidden');
+  if (_diagAnimTimer) { clearTimeout(_diagAnimTimer); _diagAnimTimer = null; }
 }
 
-function _defaultStepLabel(n) {
-  return ['Generate state token', 'Redirect to Lucid', 'Receive authorization code',
-          'Validate state token', 'Exchange code for token'][n - 1] || `Step ${n}`;
-}
+// ── Button wiring ──────────────────────────────────────────────────────────────
 
-function _defaultStepDetail(n) {
-  return [
-    'A random CSRF-protection token — stored in server memory until callback',
-    "Browser goes to Lucid's consent screen with client_id, scopes, redirect_uri",
-    'Lucid sends a one-time authorization code to /callback',
-    'State parameter must match what was stored — prevents request forgery',
-    "Server-to-server POST with client_secret — token never touches the browser",
-  ][n - 1] || '';
-}
-
-function renderFlowSteps(steps) {
-  steps.forEach(s => {
-    const el = $(`#flow-step-${s.step}`);
-    if (!el) return;
-    el.classList.remove('step-ok', 'step-error', 'step-pending');
-    if (s.status === 'ok')      { el.classList.add('step-ok');      el.querySelector('.flow-step-status').textContent = '✓'; }
-    if (s.status === 'error')   { el.classList.add('step-error');   el.querySelector('.flow-step-status').textContent = '✗'; }
-    if (s.status === 'pending') { el.classList.add('step-pending'); el.querySelector('.flow-step-status').textContent = '…'; }
-    el.querySelector('.flow-step-label').textContent  = s.label;
-    el.querySelector('.flow-step-detail').textContent = s.detail;
-  });
-}
-
-// Single state variable for what the primary modal button does
-let _modalButtonMode = 'launch'; // 'launch' | 'close' | 'retry'
-
+// startAuthFlow: opens scope selector (no longer auto-redirects)
 function startAuthFlow(flowType = 'user') {
-  // Open modal in fresh state so user sees the steps before redirect
   openAuthModalFresh(flowType);
+  openScopeSelector(flowType);
+}
+
+// openScopeSelector: fetches /auth/required-scopes and populates the checklist
+async function openScopeSelector(flowType = 'user') {
+  const scopeSel = $('#scope-selector');
+  const scopeList = $('#scope-list');
+  scopeList.innerHTML = '<div style="padding:10px 14px;font-size:11px;color:var(--text-muted)">Loading scopes…</div>';
+
+  try {
+    const res = await fetch('/auth/required-scopes');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const scopes = flowType === 'account' ? data.account : data.user;
+    renderScopeList(scopes);
+  } catch (err) {
+    scopeList.innerHTML = `<div style="padding:10px 14px;font-size:11px;color:var(--error-red)">Failed to load scopes: ${err.message}</div>`;
+  }
+}
+
+// renderScopeList: build checkbox rows from the /auth/required-scopes response
+function renderScopeList(scopes) {
+  const list = $('#scope-list');
+  list.innerHTML = '';
+
+  scopes.forEach(item => {
+    const row = document.createElement('label');
+    // Enterprise-only scopes get a distinct visual treatment and start unchecked
+    row.className = item.enterprise_only ? 'scope-row scope-row-enterprise' : 'scope-row';
+
+    // Sanitise endpoint list for display — strip the parenthetical note on offline_access
+    const endpointText = item.endpoints
+      .filter(e => !e.startsWith('('))
+      .join(', ') || '—';
+
+    // Enterprise scopes: unchecked by default + warning badge
+    const checkedAttr = item.enterprise_only ? '' : 'checked';
+    const enterpriseBadge = item.enterprise_only
+      ? '<span class="scope-enterprise-badge">Enterprise Shield only</span>'
+      : '';
+
+    row.innerHTML = `
+      <input type="checkbox" class="scope-checkbox" value="${item.scope}" ${checkedAttr}>
+      <div class="scope-row-body">
+        <span class="scope-name-row">
+          <code class="scope-name">${item.scope}</code>${enterpriseBadge}
+        </span>
+        <span class="scope-desc">${item.description || ''}</span>
+        <span class="scope-endpoints">${endpointText}</span>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+
+  // Wire "⚡ Select all scopes" shortcut button
+  const btnSelectAll = $('#btn-select-all-scopes');
+  // Remove old listener by cloning (avoids stacking listeners on re-open)
+  const freshBtn = btnSelectAll.cloneNode(true);
+  btnSelectAll.parentNode.replaceChild(freshBtn, btnSelectAll);
+  freshBtn.addEventListener('click', () => {
+    // Select all NON-enterprise scopes — enterprise scopes stay unchecked to
+    // avoid invalid_scope errors on standard OAuth clients.
+    $$('#scope-list .scope-checkbox').forEach(cb => {
+      const row = cb.closest('.scope-row');
+      if (!row || !row.classList.contains('scope-row-enterprise')) cb.checked = true;
+    });
+    // Sync the "select all" footer checkbox state
+    const all = [...$$('#scope-list .scope-checkbox')];
+    const checkedCount = all.filter(c => c.checked).length;
+    const allCheck = $('#scope-check-all');
+    if (allCheck) {
+      allCheck.checked = checkedCount === all.length;
+      allCheck.indeterminate = checkedCount > 0 && checkedCount < all.length;
+    }
+    updateScopeCount();
+  });
+
+  // Wire footer "select all" checkbox
+  const allCheck = $('#scope-check-all');
+  if (allCheck) {
+    const freshAllCheck = allCheck.cloneNode(true);
+    allCheck.parentNode.replaceChild(freshAllCheck, allCheck);
+    freshAllCheck.checked = true;
+    freshAllCheck.addEventListener('change', e => {
+      $$('#scope-list .scope-checkbox').forEach(cb => cb.checked = e.target.checked);
+      freshAllCheck.indeterminate = false;
+      updateScopeCount();
+    });
+  }
+
+  // Wire individual checkboxes
+  $$('#scope-list .scope-checkbox').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const all = [...$$('#scope-list .scope-checkbox')];
+      const checkedCount = all.filter(c => c.checked).length;
+      const fc = $('#scope-check-all');
+      if (fc) {
+        fc.checked = checkedCount === all.length;
+        fc.indeterminate = checkedCount > 0 && checkedCount < all.length;
+      }
+      updateScopeCount();
+    });
+  });
+
+  updateScopeCount();
+}
+
+function updateScopeCount() {
+  const n = $$('#scope-list input[type=checkbox]:checked').length;
+  const label = $('#scope-count-label');
+  if (label) label.textContent = `${n} scope${n === 1 ? '' : 's'} selected`;
+}
+
+// _launchWithSelectedScopes: gather checked scopes, build URL, redirect
+function _launchWithSelectedScopes() {
+  const checked = [...$$('#scope-list input[type=checkbox]:checked')].map(cb => cb.value);
+
+  if (checked.length === 0) {
+    const label = $('#scope-count-label');
+    if (label) {
+      label.textContent = '⚠ Select at least one scope';
+      label.style.color = 'var(--error-red)';
+      setTimeout(() => { label.style.color = ''; updateScopeCount(); }, 2500);
+    }
+    return;
+  }
+
+  // offline_access gives a refresh token — ensure it's always included
+  if (!checked.includes('offline_access')) checked.push('offline_access');
+
+  // Build the route with scopes as a query param
+  const scopeParam = encodeURIComponent(checked.join(' '));
+  const route = _modalFlowType === 'account'
+    ? `/auth/lucid-account?scopes=${scopeParam}`
+    : `/auth/lucid?scopes=${scopeParam}`;
+
+  // Transition: hide scope selector, show flow diagram skeleton, then redirect
+  $('#scope-selector').classList.add('hidden');
+  $('#auth-flow-diagram').classList.remove('hidden');
+  initFlowDiagram([]);
   btnOpenLucid.disabled = true;
   btnOpenLucid.textContent = 'Redirecting to Lucid…';
   _modalButtonMode = null;
 
-  // Navigate after a short delay so the engineer sees the modal first
-  setTimeout(() => { window.location.href = _flowAuthRoute(); }, 900);
+  setTimeout(() => { window.location.href = route; }, 600);
 }
 
-// Primary modal button — behaviour depends on current mode
 btnOpenLucid.addEventListener('click', () => {
-  if (_modalButtonMode === 'close')  { closeAuthModal(); return; }
-  // On retry/launch, preserve the current flow type
-  if (_modalButtonMode === 'retry')  { closeAuthModal(); startAuthFlow(_modalFlowType); return; }
-  if (_modalButtonMode === 'launch') { closeAuthModal(); startAuthFlow(_modalFlowType); return; }
+  if (_modalButtonMode === 'scope-select') { _launchWithSelectedScopes(); return; }
+  if (_modalButtonMode === 'close')        { closeAuthModal(); return; }
+  if (_modalButtonMode === 'retry')        { closeAuthModal(); startAuthFlow(_modalFlowType); return; }
+  if (_modalButtonMode === 'launch')       { closeAuthModal(); startAuthFlow(_modalFlowType); return; }
 });
 
-// Wire up all other buttons
 btnReauth.addEventListener('click', () => startAuthFlow('user'));
 btnRetryAuth.addEventListener('click', () => { closeAuthModal(); startAuthFlow(_modalFlowType); });
 btnAuthClose.addEventListener('click', closeAuthModal);
-btnViewFlow.addEventListener('click', () => openAuthModalWithResults('user'));
+
+// Single "View Auth Flows" button — opens viewer, defaults to user tab
+btnViewFlows.addEventListener('click', () => openAuthModalViewer('user'));
+
 authModalOverlay.addEventListener('click', (e) => {
   if (e.target === authModalOverlay) closeAuthModal();
 });
 
-// Account token auth — opens modal then redirects
+// Wire flow-type tab clicks (delegated — tabs exist in DOM on load)
+$$('.flow-type-tab').forEach(tab => {
+  tab.addEventListener('click', () => switchFlowTab(tab.dataset.flow));
+});
+
 btnReauthAccount.addEventListener('click', () => startAuthFlow('account'));
-btnViewAccountFlow.addEventListener('click', () => openAuthModalWithResults('account'));
 
 // ── Sidebar navigation ─────────────────────────────────────────────────────────
 
 function initSidebar() {
-  // Surface header toggles
+  // Surface header toggles (expand/collapse entire API surface section)
   $$('.surface-header').forEach(header => {
     header.addEventListener('click', () => {
       const surface = header.dataset.surface;
@@ -714,6 +1538,18 @@ function initSidebar() {
       const isExpanded = header.classList.contains('expanded');
       header.classList.toggle('expanded', !isExpanded);
       list.classList.toggle('open', !isExpanded);
+    });
+  });
+
+  // Sub-group header toggles (collapsible groups within a surface endpoint list)
+  $$('.endpoint-group-header').forEach(header => {
+    header.addEventListener('click', () => {
+      // The sub-list is always the next sibling element after the header <li>
+      const sublist = header.nextElementSibling;
+      if (!sublist) return;
+      const isOpen = sublist.classList.contains('open');
+      sublist.classList.toggle('open', !isOpen);
+      header.classList.toggle('expanded', !isOpen);
     });
   });
 
@@ -744,9 +1580,16 @@ function initSidebar() {
         const list   = $(`#endpoints-${surface}`);
         header.classList.add('expanded');
         list.classList.add('open');
-        // Load first endpoint in that surface
+        // Load first endpoint in that surface.
+        // If it's inside a collapsed sub-group, open that group first.
         const firstItem = list.querySelector('.endpoint-item');
         if (firstItem) {
+          const parentSublist = firstItem.closest('.endpoint-sublist');
+          if (parentSublist && !parentSublist.classList.contains('open')) {
+            parentSublist.classList.add('open');
+            const groupHeader = parentSublist.previousElementSibling;
+            if (groupHeader) groupHeader.classList.add('expanded');
+          }
           firstItem.click();
         }
       }
@@ -1371,10 +2214,173 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── Token Visibility Panel ─────────────────────────────────────────────────────
+// Dropdown anchored to the topbar center, showing live token state for all slots.
+// Opens on click, closes on outside click or Escape. Refreshes every second when
+// open (for the expiry countdown). Fetches /auth/token-peek for full token detail.
+
+const tokenPanelTrigger  = $('#token-panel-trigger');
+const tokenPanel         = $('#token-panel');
+
+let _tokenPanelOpen      = false;
+let _tokenPanelInterval  = null;
+
+function openTokenPanel() {
+  _tokenPanelOpen = true;
+  tokenPanel.classList.remove('hidden');
+  tokenPanelTrigger.classList.add('open');
+  refreshTokenPanel();
+  _tokenPanelInterval = setInterval(refreshTokenPanel, 1000);
+}
+
+function closeTokenPanel() {
+  _tokenPanelOpen = false;
+  tokenPanel.classList.add('hidden');
+  tokenPanelTrigger.classList.remove('open');
+  clearInterval(_tokenPanelInterval);
+  _tokenPanelInterval = null;
+}
+
+function toggleTokenPanel() {
+  if (_tokenPanelOpen) closeTokenPanel();
+  else openTokenPanel();
+}
+
+async function refreshTokenPanel() {
+  let peek = null;
+  try {
+    const res = await fetch('/auth/token-peek');
+    if (res.ok) peek = await res.json();
+  } catch (_) { /* server not ready */ }
+
+  // Also grab SCIM status from /auth/status (token-peek doesn't include SCIM)
+  let authStatus = null;
+  try {
+    const res2 = await fetch('/auth/status');
+    if (res2.ok) authStatus = await res2.json();
+  } catch (_) {}
+
+  renderTokenSlot('user',    peek?.user_token    ?? null);
+  renderTokenSlot('account', peek?.account_token ?? null);
+  renderScimSlot(authStatus?.scim ?? null);
+}
+
+function renderTokenSlot(slotId, data) {
+  const bodyEl   = $(`#token-${slotId}-body`);
+  const statusEl = $(`#token-${slotId}-status`);
+  const dotEl    = $(`#token-slot-${slotId} .token-slot-dot`);
+
+  if (!data) {
+    bodyEl.className = 'token-slot-body token-slot-empty';
+    bodyEl.textContent = slotId === 'user'
+      ? 'No user token. Click "Auth User Token" to authenticate.'
+      : 'No account token. Click "Auth Account Token" to authenticate.';
+    statusEl.textContent = 'none';
+    statusEl.className = 'token-slot-badge badge-none';
+    if (dotEl) dotEl.classList.add('inactive');
+    return;
+  }
+
+  if (dotEl) dotEl.classList.remove('inactive');
+
+  // Compute expiry
+  const expiryHtml = buildExpiryHtml(data.expires_at);
+  const isExpired  = data.expires_at ? new Date(data.expires_at + 'Z') < new Date() : false;
+
+  statusEl.textContent = isExpired ? 'expired' : 'active';
+  statusEl.className   = 'token-slot-badge ' + (isExpired ? 'badge-expired' : 'badge-active');
+
+  // Build rows
+  const rows = [];
+  rows.push(fieldRow('type',    data.token_type || 'Bearer'));
+  rows.push(fieldRow('preview', `<span class="value-mono">${escapeHtml(data.preview || '')}</span>`));
+  rows.push(fieldRow('expires', expiryHtml));
+  rows.push(fieldRow('refresh', data.has_refresh_token
+    ? `<span style="color:var(--terminal-green)">yes — ${escapeHtml(data.refresh_token_preview || '')}</span>`
+    : '<span style="color:var(--text-muted)">no</span>'));
+
+  // Scopes row
+  const scopeHtml = data.scopes && data.scopes.length
+    ? data.scopes.map(s => `<span class="scope-tag" style="font-size:9px">${escapeHtml(s)}</span>`).join('')
+    : '<span style="color:var(--text-muted)">none</span>';
+  rows.push(`<div class="token-field"><span class="token-field-key">scopes</span><div class="token-scopes">${scopeHtml}</div></div>`);
+
+  bodyEl.className = 'token-slot-body';
+  bodyEl.innerHTML = rows.join('');
+}
+
+function renderScimSlot(scimStatus) {
+  const bodyEl   = $('#token-scim-body');
+  const statusEl = $('#token-scim-status');
+  const dotEl    = document.querySelector('#token-slot-scim .token-slot-dot');
+
+  const authenticated = scimStatus?.authenticated ?? false;
+
+  if (!authenticated) {
+    bodyEl.className = 'token-slot-body token-slot-empty';
+    bodyEl.textContent = 'No SCIM token. Set LUCID_SCIM_TOKEN in .env.';
+    statusEl.textContent = 'none';
+    statusEl.className = 'token-slot-badge badge-none';
+    if (dotEl) dotEl.classList.add('inactive');
+    return;
+  }
+
+  if (dotEl) dotEl.classList.remove('inactive');
+  statusEl.textContent = 'static';
+  statusEl.className   = 'token-slot-badge badge-static';
+  bodyEl.className = 'token-slot-body';
+  bodyEl.innerHTML = fieldRow('type', 'Bearer (static)') +
+    fieldRow('source', '.env LUCID_SCIM_TOKEN') +
+    fieldRow('expiry', '<span style="color:var(--text-muted)">no expiry — rotate manually</span>');
+}
+
+function fieldRow(key, valueHtml) {
+  return `<div class="token-field"><span class="token-field-key">${key}</span><span class="token-field-value">${valueHtml}</span></div>`;
+}
+
+function buildExpiryHtml(expiresAt) {
+  if (!expiresAt) return '<span style="color:var(--text-muted)">unknown</span>';
+  // expires_at from server is UTC ISO without trailing Z — add it
+  const expiresDate = new Date(expiresAt + 'Z');
+  const nowMs       = Date.now();
+  const diffMs      = expiresDate - nowMs;
+  const diffSec     = Math.floor(diffMs / 1000);
+
+  if (diffSec <= 0) {
+    return `<span class="token-expiry-expired">expired ${formatDuration(-diffSec)} ago</span>`;
+  }
+  const cls = diffSec < 300 ? 'token-expiry-warning' : 'token-expiry-ok';
+  return `<span class="${cls}">in ${formatDuration(diffSec)} (${expiresDate.toLocaleTimeString()})</span>`;
+}
+
+function formatDuration(totalSec) {
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  const rem = min % 60;
+  return rem > 0 ? `${hr}h ${rem}m` : `${hr}h`;
+}
+
+// Close on outside click
+document.addEventListener('click', (e) => {
+  if (_tokenPanelOpen && !tokenPanel.contains(e.target) && !tokenPanelTrigger.contains(e.target)) {
+    closeTokenPanel();
+  }
+});
+
+// Close on Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && _tokenPanelOpen) closeTokenPanel();
+});
+
+
 // ── Init ───────────────────────────────────────────────────────────────────────
 
 function init() {
   initSidebar();
+  tokenPanelTrigger.addEventListener('click', toggleTokenPanel);
   pollAuthStatus();
   setInterval(pollAuthStatus, 15000); // Poll every 15s to keep status fresh
   // handleOAuthRedirect last — it may open the modal which reads DOM state

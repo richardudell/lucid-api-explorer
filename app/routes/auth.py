@@ -83,13 +83,17 @@ def _log_step(
 # ── Step 1 — Initiate the OAuth flow ─────────────────────────────────────────
 
 @router.get("/auth/lucid", summary="Initiate Lucid REST API OAuth flow")
-async def auth_lucid() -> RedirectResponse:
+async def auth_lucid(scopes: str | None = None) -> RedirectResponse:
     """
     Redirect the browser to Lucid's authorization URL.
 
     Generates a cryptographically random `state` value and stores it in
     app.state.rest_oauth_state. Lucid will echo it back on the callback so
     we can verify the request wasn't forged (CSRF protection).
+
+    Args:
+        scopes: Optional space-separated scope string from the UI scope selector.
+                If not provided, falls back to LUCID_OAUTH_SCOPES from .env.
     """
     _reset_flow_log()
 
@@ -111,17 +115,23 @@ async def auth_lucid() -> RedirectResponse:
     )
 
     # ── Step 2: Build the authorization URL ───────────────────────────────────
+    # Use UI-selected scopes if provided; fall back to .env defaults.
     # Scopes must be space-separated (RFC 6749 §3.3).
     # We encode all params except scope with urlencode(), then append scope
     # separately so spaces become %20 — some servers reject + encoding.
-    scopes = " ".join(LUCID_OAUTH_SCOPES)
+    if scopes:
+        scope_list = [s.strip() for s in scopes.split() if s.strip()]
+    else:
+        scope_list = list(LUCID_OAUTH_SCOPES)
+    scope_str = " ".join(scope_list)
+
     base_params = urlencode({
         "client_id": LUCID_CLIENT_ID,
         "redirect_uri": LUCID_REDIRECT_URI,
         "response_type": "code",
         "state": oauth_state,
     })
-    scope_param = "scope=" + urlquote(scopes, safe=":")
+    scope_param = "scope=" + urlquote(scope_str, safe=":")
     authorization_url = f"{LUCID_AUTH_URL}?{base_params}&{scope_param}"
 
     _log_step(
@@ -129,7 +139,7 @@ async def auth_lucid() -> RedirectResponse:
         label="Authorization URL constructed",
         detail=(
             f"The browser will be redirected to Lucid's authorization endpoint. "
-            f"Scopes requested: {scopes}. "
+            f"Scopes requested: {scope_str}. "
             f"response_type=code tells Lucid we want an Authorization Code, not an implicit token. "
             f"The redirect_uri must match exactly what is registered in the Developer Portal."
         ),
@@ -141,7 +151,7 @@ async def auth_lucid() -> RedirectResponse:
                 "client_id": LUCID_CLIENT_ID,
                 "redirect_uri": LUCID_REDIRECT_URI,
                 "response_type": "code",
-                "scope": scopes,
+                "scope": scope_str,
                 "state": oauth_state[:8] + "•••• (truncated)",
             },
         },
@@ -460,7 +470,7 @@ def _store_rest_account_token(token_data: dict) -> None:
 # ── Account token OAuth flow ──────────────────────────────────────────────────
 
 @router.get("/auth/lucid-account", summary="Initiate Lucid REST API account token OAuth flow")
-async def auth_lucid_account() -> RedirectResponse:
+async def auth_lucid_account(scopes: str | None = None) -> RedirectResponse:
     """
     Redirect the browser to Lucid's account authorization URL.
 
@@ -468,6 +478,10 @@ async def auth_lucid_account() -> RedirectResponse:
     https://lucid.app/oauth2/authorizeAccount instead of /authorize.
     The resulting token has account-admin scope, needed for createUser,
     listUsers, and other account-level operations.
+
+    Args:
+        scopes: Optional space-separated scope string from the UI scope selector.
+                If not provided, falls back to LUCID_ACCOUNT_OAUTH_SCOPES from .env.
     """
     _reset_account_flow_log()
 
@@ -487,14 +501,20 @@ async def auth_lucid_account() -> RedirectResponse:
         response={"state_token": oauth_state[:8] + "••••••••  (truncated for display)"},
     )
 
-    scopes = " ".join(LUCID_ACCOUNT_OAUTH_SCOPES)
+    # Use UI-selected scopes if provided; fall back to .env defaults.
+    if scopes:
+        scope_list = [s.strip() for s in scopes.split() if s.strip()]
+    else:
+        scope_list = list(LUCID_ACCOUNT_OAUTH_SCOPES)
+    scope_str = " ".join(scope_list)
+
     base_params = urlencode({
         "client_id": LUCID_CLIENT_ID,
         "redirect_uri": LUCID_ACCOUNT_REDIRECT_URI,
         "response_type": "code",
         "state": oauth_state,
     })
-    scope_param = "scope=" + urlquote(scopes, safe=":")
+    scope_param = "scope=" + urlquote(scope_str, safe=":")
     authorization_url = f"{LUCID_ACCOUNT_AUTH_URL}?{base_params}&{scope_param}"
 
     _log_account_step(
@@ -504,7 +524,7 @@ async def auth_lucid_account() -> RedirectResponse:
             f"The browser will be redirected to Lucid's ACCOUNT authorization endpoint. "
             f"This URL (oauth2/authorizeAccount) produces an account-level token — "
             f"required for admin operations like createUser. "
-            f"Scopes requested: {scopes}."
+            f"Scopes requested: {scope_str}."
         ),
         status="pending",
         request={
@@ -514,7 +534,7 @@ async def auth_lucid_account() -> RedirectResponse:
                 "client_id": LUCID_CLIENT_ID,
                 "redirect_uri": LUCID_ACCOUNT_REDIRECT_URI,
                 "response_type": "code",
-                "scope": scopes,
+                "scope": scope_str,
                 "state": oauth_state[:8] + "•••• (truncated)",
             },
         },
@@ -670,6 +690,94 @@ async def oauth_account_callback(
 
     state.rest_account_oauth_state = None
     return RedirectResponse(url="/?account_auth_success=true")
+
+
+# ── Required scopes ───────────────────────────────────────────────────────────
+
+# Plain-English descriptions shown in the scope selector UI.
+# Keys match the scope strings used in ENDPOINT_REGISTRY.
+SCOPE_DESCRIPTIONS: dict[str, str] = {
+    "account.user:readonly": "Read user accounts, emails, and profile data",
+    "account.user": "Read and manage user accounts (create, modify)",
+    "account.info": "Read basic account information (name, plan, ID)",
+    "user.profile": "Read the authenticated user's own extended profile",
+    "lucidchart.document.content:readonly": "Read Lucidchart document metadata and content",
+    "lucidchart.document.content": "Read and modify Lucidchart documents (create, trash)",
+    "lucidchart.document.content:admin.readonly": "Read all account documents — Enterprise Shield accounts only. Standard OAuth clients will get invalid_scope.",
+    "lucidspark.document.content:readonly": "Read Lucidspark board content",
+    "lucidspark.document.content": "Read and modify Lucidspark boards",
+    "folder:readonly": "List folders and read their contents",
+    "folder": "Create, rename, trash, and restore folders",
+    "offline_access": "Receive a refresh token — allows renewing access without re-authenticating",
+}
+
+
+# Scopes that require special account entitlements (e.g. Enterprise Shield).
+# These are shown in the scope selector unchecked by default with a warning label.
+# Sending them to a standard OAuth client causes an invalid_scope error from Lucid.
+ENTERPRISE_SCOPES: set[str] = {
+    "lucidchart.document.content:admin.readonly",
+    "lucidspark.document.content:admin.readonly",
+    "lucidscale.document.content:admin.readonly",
+}
+
+
+@router.get("/auth/required-scopes", summary="Return scopes required by registered REST endpoints")
+async def required_scopes() -> JSONResponse:
+    """
+    Compute the set of OAuth scopes required by all registered REST endpoints
+    and return them grouped by token type (user / account).
+
+    Each entry includes:
+      - scope: the scope string
+      - description: plain-English label for the UI
+      - endpoints: list of endpoint keys that require this scope
+      - enterprise_only: True if this scope requires a special Lucid entitlement
+        (e.g. Enterprise Shield). These are shown unchecked by default in the UI
+        because standard OAuth clients will get an invalid_scope error if they
+        include them.
+
+    This endpoint is the source of truth for the frontend scope selector —
+    adding a new endpoint to ENDPOINT_REGISTRY automatically surfaces its
+    scope here without any manual configuration.
+    """
+    from app.services.lucid_rest import ENDPOINT_REGISTRY
+
+    user_scopes: dict[str, set[str]] = {}
+    account_scopes: dict[str, set[str]] = {}
+
+    for key, ep in ENDPOINT_REGISTRY.items():
+        token_type = ep.get("token", "user")
+        scope = ep.get("scope")
+        # client_credentials endpoints use client_id/secret — no Bearer scope
+        if not scope or token_type == "client_credentials":
+            continue
+        target = account_scopes if token_type == "account" else user_scopes
+        if scope not in target:
+            target[scope] = set()
+        target[scope].add(key)
+
+    # offline_access gives a refresh token — always include it for user tokens.
+    # It's not tied to a specific endpoint but is essential for long-running sessions.
+    user_scopes.setdefault("offline_access", set()).add("(refresh token — not endpoint-specific)")
+
+    def format_group(group: dict[str, set[str]]) -> list[dict]:
+        return [
+            {
+                "scope": scope,
+                "description": SCOPE_DESCRIPTIONS.get(scope, ""),
+                "endpoints": sorted(group[scope]),
+                # enterprise_only scopes are shown unchecked in the UI by default —
+                # standard OAuth clients don't have access to them.
+                "enterprise_only": scope in ENTERPRISE_SCOPES,
+            }
+            for scope in sorted(group)
+        ]
+
+    return JSONResponse({
+        "user": format_group(user_scopes),
+        "account": format_group(account_scopes),
+    })
 
 
 # ── Auth status ───────────────────────────────────────────────────────────────

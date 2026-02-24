@@ -30,28 +30,136 @@ ENDPOINT_REGISTRY: dict[str, dict] = {
     "getUser": {
         "method": "GET",
         "url": lambda p: _url(f"/users/{p['userId']}"),
-        "token": "user",   # requires user token
+        "token": "user",
+        "scope": "account.user:readonly",
     },
     "listUsers": {
         "method": "GET",
         "url": lambda p: _url("/users"),
-        "token": "account",  # requires account token
+        "token": "account",
+        "scope": "account.user:readonly",
     },
     "userEmailSearch": {
         "method": "GET",
         "url": lambda p: _url(f"/users?email={p['email']}"),
         "token": "user",
+        "scope": "account.user:readonly",
     },
     "getUserProfile": {
         "method": "GET",
         "url": lambda p: _url("/users/me/profile"),
         "token": "user",
+        "scope": "account.user:readonly",
     },
     "createUser": {
         "method": "POST",
         "url": lambda p: _url("/users"),
         "has_body": True,
-        "token": "account",  # requires account token (account-admin scope)
+        "token": "account",
+        "scope": "account.user",
+    },
+
+    # ── Accounts ──────────────────────────────────────────────────────────────
+
+    "getAccountInfo": {
+        "method": "GET",
+        "url": lambda p: _url("/accounts/me"),
+        "token": "user",
+        "scope": "account.info",
+    },
+
+    # ── Documents ─────────────────────────────────────────────────────────────
+
+    "searchAccountDocuments": {
+        # Enterprise Shield accounts only — requires account token + admin doc scope
+        "method": "POST",
+        "url": lambda p: _url("/accounts/me/documents/search"),
+        "has_body": True,
+        "token": "account",
+        "scope": "lucidchart.document.content:admin.readonly",
+    },
+    "searchDocuments": {
+        "method": "POST",
+        "url": lambda p: _url("/documents/search"),
+        "has_body": True,
+        "token": "user",
+        "scope": "lucidchart.document.content:readonly",
+    },
+    "createDocument": {
+        "method": "POST",
+        "url": lambda p: _url("/documents"),
+        "has_body": True,
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+    "getDocument": {
+        "method": "GET",
+        "url": lambda p: _url(f"/documents/{p['documentId']}"),
+        "token": "user",
+        "scope": "lucidchart.document.content:readonly",
+    },
+    "getDocumentContents": {
+        "method": "GET",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/contents"),
+        "token": "user",
+        "scope": "lucidchart.document.content:readonly",
+    },
+    "trashDocument": {
+        # POST to /trash — no body required; document ID is in the URL
+        "method": "POST",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/trash"),
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+
+    # ── Folders ───────────────────────────────────────────────────────────────
+
+    "getFolder": {
+        "method": "GET",
+        "url": lambda p: _url(f"/folders/{p['folderId']}"),
+        "token": "user",
+        "scope": "folder:readonly",
+    },
+    "createFolder": {
+        "method": "POST",
+        "url": lambda p: _url("/folders"),
+        "has_body": True,
+        "token": "user",
+        "scope": "folder",
+    },
+    "updateFolder": {
+        "method": "PATCH",
+        "url": lambda p: _url(f"/folders/{p['folderId']}"),
+        "has_body": True,
+        "token": "user",
+        "scope": "folder",
+    },
+    "trashFolder": {
+        # POST to /trash — no body required
+        "method": "POST",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/trash"),
+        "token": "user",
+        "scope": "folder",
+    },
+    "restoreFolder": {
+        # POST to /restore — no body required
+        "method": "POST",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/restore"),
+        "token": "user",
+        "scope": "folder",
+    },
+    "listFolderContents": {
+        "method": "GET",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/contents"),
+        "token": "user",
+        "scope": "folder:readonly",
+    },
+    "listRootFolderContents": {
+        # 'root' is a literal path segment, not a parameter
+        "method": "GET",
+        "url": lambda p: _url("/folders/root/contents"),
+        "token": "user",
+        "scope": "folder:readonly",
     },
 
     # ── OAuth Token Management ────────────────────────────────────────────────
@@ -117,7 +225,7 @@ async def execute_rest_call(endpoint_key: str, params: dict) -> dict:
         if not state.is_rest_account_authenticated():
             return _error_result(
                 "This endpoint requires an account token. "
-                "Click 'Auth Account' in the topbar to complete the account OAuth flow.",
+                "Use the 'Auth Account Token' button in the topbar to complete the OAuth flow.",
                 status_code=401,
             )
         access_token = state.rest_account_access_token
@@ -125,7 +233,7 @@ async def execute_rest_call(endpoint_key: str, params: dict) -> dict:
     else:
         if not state.is_rest_authenticated():
             return _error_result(
-                "Not authenticated. Click 'Re-auth REST' in the topbar to complete the OAuth flow.",
+                "Not authenticated. Use the auth buttons in the topbar to complete the OAuth flow.",
                 status_code=401,
             )
         access_token = state.rest_access_token

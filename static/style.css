@@ -82,6 +82,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
 }
 
 .status-dot {
@@ -96,6 +97,160 @@ html, body {
 .dot-partial         { background: var(--warning-amber); box-shadow: 0 0 4px var(--warning-amber); }
 
 #auth-status-label { font-size: 12px; color: var(--text-secondary); }
+
+/* ── Token panel trigger (wraps dot + label + chevron) ──────────────────────── */
+.token-panel-trigger {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+  color: inherit;
+}
+
+.token-panel-trigger:hover { background: var(--panel-mid); }
+.token-panel-trigger.open   { background: var(--panel-mid); }
+
+.token-panel-chevron {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+  line-height: 1;
+}
+
+.token-panel-trigger.open .token-panel-chevron { transform: rotate(180deg); }
+
+/* ── Token visibility panel ─────────────────────────────────────────────────── */
+#token-panel {
+  position: absolute;
+  top: calc(var(--topbar-h) + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 440px;
+  background: var(--panel-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 200;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.token-panel-header {
+  padding: 8px 14px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+
+.token-slot {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.token-slot:last-of-type { border-bottom: none; }
+
+.token-slot-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.token-slot-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-user        { background: var(--terminal-green); box-shadow: 0 0 4px var(--terminal-green); }
+.dot-account     { background: var(--warning-amber);  box-shadow: 0 0 4px var(--warning-amber); }
+.dot-scim-panel  { background: var(--put-color);      box-shadow: 0 0 4px var(--put-color); }
+
+.dot-user.inactive    { background: var(--text-muted); box-shadow: none; }
+.dot-account.inactive { background: var(--text-muted); box-shadow: none; }
+.dot-scim-panel.inactive { background: var(--text-muted); box-shadow: none; }
+
+.token-slot-badge {
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.token-slot-badge.badge-active   { background: color-mix(in srgb, var(--terminal-green) 20%, transparent); color: var(--terminal-green); border: 1px solid color-mix(in srgb, var(--terminal-green) 40%, transparent); }
+.token-slot-badge.badge-expired  { background: color-mix(in srgb, var(--error-red) 20%, transparent);      color: var(--error-red);      border: 1px solid color-mix(in srgb, var(--error-red) 40%, transparent); }
+.token-slot-badge.badge-none     { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+.token-slot-badge.badge-static   { background: color-mix(in srgb, var(--put-color) 20%, transparent);      color: var(--put-color);      border: 1px solid color-mix(in srgb, var(--put-color) 40%, transparent); }
+
+.token-slot-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.token-slot-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.token-field {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.token-field-key {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 90px;
+}
+
+.token-field-value {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.token-field-value.value-mono {
+  font-family: var(--font-mono);
+}
+
+.token-expiry-warning { color: var(--warning-amber); }
+.token-expiry-ok      { color: var(--terminal-green); }
+.token-expiry-expired { color: var(--error-red); }
+
+.token-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.token-panel-footer {
+  padding: 7px 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-ui);
+}
 
 #topbar-right {
   display: flex;
@@ -247,6 +402,52 @@ html, body {
   list-style: none;
   border-top: 1px solid var(--border);
   margin-top: 4px;
+}
+
+/* ── Collapsible sub-group headers (within a surface endpoint list) ─────── */
+.endpoint-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px 7px 12px;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  border-top: 1px solid var(--border);
+  transition: color 0.1s;
+}
+
+.endpoint-group-header:first-child { border-top: none; }
+.endpoint-group-header:hover { color: var(--text-secondary); }
+
+.group-chevron {
+  font-size: 11px;
+  display: inline-block;
+  transition: transform 0.15s;
+  color: var(--text-muted);
+}
+
+.endpoint-group-header.expanded .group-chevron {
+  transform: rotate(90deg);
+}
+
+/* Sub-list — hidden by default via max-height collapse */
+.endpoint-sublist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+
+.endpoint-sublist.open {
+  max-height: 800px; /* generous ceiling for any group */
 }
 
 /* Method badges */
@@ -1030,9 +1231,9 @@ textarea.param-input {
   background: var(--panel-dark);
   border: 1px solid var(--border);
   border-radius: 8px;
-  width: 540px;
-  max-width: 95vw;
-  max-height: 90vh;
+  width: 680px;
+  max-width: 96vw;
+  max-height: 92vh;
   overflow-y: auto;
   padding: 24px;
   display: flex;
@@ -1067,95 +1268,377 @@ textarea.param-input {
   color: var(--text-primary);
 }
 
-/* Flow diagram */
-#auth-flow-diagram {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.flow-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 5px;
-  border: 1px solid var(--border);
-  background: var(--surface-dark);
-  transition: border-color 0.2s, background 0.2s;
-}
-
-.flow-step.step-ok {
-  border-color: var(--terminal-green);
-  background: color-mix(in srgb, var(--terminal-green) 6%, var(--surface-dark));
-}
-
-.flow-step.step-error {
-  border-color: var(--error-red);
-  background: color-mix(in srgb, var(--error-red) 8%, var(--surface-dark));
-}
-
-.flow-step.step-pending {
-  border-color: var(--warning-amber);
-  background: color-mix(in srgb, var(--warning-amber) 6%, var(--surface-dark));
-}
-
-.flow-step-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+#auth-modal-intro code {
+  font-family: var(--font-mono);
+  font-size: 11px;
   background: var(--panel-mid);
-  border: 1px solid var(--border);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--blue-light);
+}
+
+/* ── Flow type tabs (User Token / Account Token) ─────────────────────────────── */
+#flow-type-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+
+.flow-type-tab {
+  position: relative;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 7px 18px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-  margin-top: 1px;
+  gap: 6px;
+  margin-bottom: -1px; /* overlap the border-bottom */
 }
 
-.flow-step.step-ok    .flow-step-icon { background: var(--terminal-green); color: #000; border-color: var(--terminal-green); }
-.flow-step.step-error .flow-step-icon { background: var(--error-red); color: #fff; border-color: var(--error-red); }
-.flow-step.step-pending .flow-step-icon { background: var(--warning-amber); color: #000; border-color: var(--warning-amber); }
+.flow-type-tab:hover { color: var(--text-primary); }
 
-.flow-step-body {
+.flow-type-tab.active {
+  color: var(--blue-light);
+  border-bottom-color: var(--lucid-blue);
+  font-weight: 600;
+}
+
+/* ✓ badge shown when that flow has been authenticated */
+.flow-tab-status {
+  font-size: 10px;
+  color: var(--terminal-green);
+  font-weight: 700;
+  min-width: 12px;
+}
+
+/* ── Auth Flow — Step-Through Explorer ──────────────────────────────────────── */
+
+/* Flow navigator (prev/counter/next) */
+#flow-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.btn-flow-nav {
+  background: var(--panel-mid);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.btn-flow-nav:hover:not(:disabled) {
+  border-color: var(--lucid-blue);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--lucid-blue) 12%, var(--panel-mid));
+}
+
+.btn-flow-nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+#flow-step-counter {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+
+/* ── Actor swimlane ── */
+#flow-actors {
+  display: flex;
+  align-items: center;
+  margin-bottom: 14px;
+  height: 80px;
+}
+
+.flow-actor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 90px;
+  min-width: 90px;
+  height: 72px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-dark);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+/* Active sender — blue glow */
+.flow-actor.actor-active {
+  border-color: var(--lucid-blue);
+  background: color-mix(in srgb, var(--lucid-blue) 10%, var(--surface-dark));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--lucid-blue) 40%, transparent);
+}
+
+/* Destination arrival — green glow */
+.flow-actor.actor-arrived {
+  border-color: var(--terminal-green);
+  background: color-mix(in srgb, var(--terminal-green) 8%, var(--surface-dark));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--terminal-green) 35%, transparent);
+}
+
+/* Internal pulse — amber (steps 1 and 4 where server acts alone) */
+.flow-actor.actor-pulse {
+  border-color: var(--warning-amber);
+  background: color-mix(in srgb, var(--warning-amber) 10%, var(--surface-dark));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--warning-amber) 35%, transparent);
+  animation: actor-pulse-anim 0.8s ease-in-out;
+}
+
+@keyframes actor-pulse-anim {
+  0%   { box-shadow: 0 0 4px color-mix(in srgb, var(--warning-amber) 20%, transparent); }
+  50%  { box-shadow: 0 0 18px color-mix(in srgb, var(--warning-amber) 60%, transparent); }
+  100% { box-shadow: 0 0 12px color-mix(in srgb, var(--warning-amber) 35%, transparent); }
+}
+
+.actor-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.actor-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Arrow tracks ── */
+.flow-arrow-track {
   flex: 1;
+  position: relative;
+  height: 72px;
+  display: flex;
+  align-items: center;
+}
+
+.flow-arrow-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--border);
+}
+
+/* ── Packet ── */
+.flow-packet {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--lucid-blue);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 5;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--lucid-blue) 70%, transparent);
+  transition: left 0.65s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  opacity: 0;
+  left: 0%;
+}
+
+.flow-packet.packet-visible {
+  opacity: 1;
+}
+
+/* Packet colour variants */
+.flow-packet.packet-redirect {
+  background: var(--warning-amber);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--warning-amber) 60%, transparent);
+  color: #000;
+}
+
+.flow-packet.packet-code {
+  background: var(--terminal-green);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--terminal-green) 60%, transparent);
+  color: #000;
+}
+
+.flow-packet.packet-token {
+  background: var(--terminal-green);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--terminal-green) 60%, transparent);
+  color: #000;
+}
+
+/* ── Step callout ── */
+#flow-callout {
+  background: var(--surface-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.3s;
+}
+
+#flow-callout.callout-ok      { border-color: color-mix(in srgb, var(--terminal-green) 50%, var(--border)); }
+#flow-callout.callout-pending { border-color: color-mix(in srgb, var(--warning-amber) 50%, var(--border)); }
+
+#flow-callout-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#flow-callout-step-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--panel-mid);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+#flow-callout.callout-ok      #flow-callout-step-badge { background: color-mix(in srgb, var(--terminal-green) 18%, transparent); color: var(--terminal-green); border-color: color-mix(in srgb, var(--terminal-green) 40%, transparent); }
+#flow-callout.callout-pending #flow-callout-step-badge { background: color-mix(in srgb, var(--warning-amber) 18%, transparent); color: var(--warning-amber); border-color: color-mix(in srgb, var(--warning-amber) 40%, transparent); }
+
+#flow-callout-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+#flow-callout-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+/* ── Payload panel ── */
+#flow-payload-toggle-row {
+  margin-top: 2px;
+}
+
+.btn-payload-toggle {
+  font-size: 11px;
+  padding: 3px 10px;
+  font-family: var(--font-mono);
+}
+
+#flow-payload {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--terminal-black);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.payload-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.payload-section-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.payload-section-label.label-request  { color: var(--blue-light); border-color: color-mix(in srgb, var(--blue-light) 30%, transparent); }
+.payload-section-label.label-response { color: var(--terminal-green); border-color: color-mix(in srgb, var(--terminal-green) 30%, transparent); }
+
+.payload-row {
+  display: flex;
+  gap: 10px;
+}
+
+.payload-key {
+  color: var(--text-muted);
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+.payload-val {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+/* ── Annotated auth URL ── */
+.url-block {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.flow-step-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.flow-step-detail {
-  font-size: 11px;
+.url-base-line {
   color: var(--text-secondary);
-  line-height: 1.5;
+  word-break: break-all;
 }
 
-.flow-step.step-ok    .flow-step-label { color: var(--terminal-green); }
-.flow-step.step-error .flow-step-label { color: var(--error-red); }
-.flow-step.step-pending .flow-step-label { color: var(--warning-amber); }
-
-.flow-step-status {
-  font-size: 14px;
-  flex-shrink: 0;
+.url-params-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 12px;
 }
 
-.flow-connector {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 14px;
-  line-height: 1.2;
-  padding: 2px 0;
+.url-param-row {
+  display: flex;
+  gap: 0;
+  align-items: baseline;
+  flex-wrap: wrap;
 }
+
+.url-amp        { color: var(--text-muted); }
+.url-pkey       { color: var(--text-muted); }
+.url-equals     { color: var(--text-muted); }
+
+/* Each param value gets its own colour */
+.upv-client-id   { color: var(--blue-light); }
+.upv-scope        { color: var(--terminal-green); }
+.upv-redirect-uri { color: var(--warning-amber); }
+.upv-state        { color: var(--put-color); }
+.upv-response-type{ color: var(--text-secondary); }
 
 /* Error panel */
 #auth-error-panel {
@@ -1209,6 +1692,163 @@ textarea.param-input {
   color: var(--text-secondary);
   line-height: 1.6;
 }
+
+/* ── Scope selector panel ─────────────────────────────────────────────────── */
+#scope-selector {
+  margin: 10px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+#scope-selector-title {
+  padding: 7px 14px;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  background: var(--panel-dark);
+  border-bottom: 1px solid var(--border);
+}
+
+#scope-selector-intro {
+  padding: 8px 14px 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  background: var(--panel-dark);
+}
+
+/* "Select all" shortcut button — visually prominent, clearly educational */
+#btn-select-all-scopes {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 7px 14px;
+  background: color-mix(in srgb, var(--lucid-blue) 8%, var(--panel-dark));
+  border: none;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px dashed color-mix(in srgb, var(--lucid-blue) 50%, var(--border));
+  color: var(--lucid-blue);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+#btn-select-all-scopes:hover {
+  background: color-mix(in srgb, var(--lucid-blue) 15%, var(--panel-dark));
+}
+
+#scope-list {
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--surface-dark);
+}
+
+.scope-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.scope-row:last-child { border-bottom: none; }
+.scope-row:hover { background: var(--panel-mid); }
+
+.scope-checkbox {
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--lucid-blue);
+  cursor: pointer;
+}
+
+.scope-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scope-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--lucid-blue);
+  word-break: break-all;
+}
+
+.scope-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.scope-endpoints {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* Enterprise-only scope rows — visually dimmed, unchecked by default */
+.scope-row-enterprise {
+  opacity: 0.65;
+  background: color-mix(in srgb, var(--warning-amber) 4%, var(--surface-dark));
+}
+.scope-row-enterprise:hover {
+  opacity: 0.85;
+  background: color-mix(in srgb, var(--warning-amber) 8%, var(--panel-mid));
+}
+
+.scope-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.scope-enterprise-badge {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warning-amber);
+  background: color-mix(in srgb, var(--warning-amber) 12%, var(--surface-dark));
+  border: 1px solid color-mix(in srgb, var(--warning-amber) 40%, transparent);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+#scope-selector-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--panel-dark);
+  border-top: 1px solid var(--border);
+}
+
+#scope-count-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.scope-check-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.scope-check-all input { accent-color: var(--lucid-blue); cursor: pointer; }
 
 #auth-modal-actions {
   display: flex;
