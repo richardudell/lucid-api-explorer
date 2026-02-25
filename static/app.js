@@ -156,6 +156,50 @@ const ENDPOINTS = {
       },
     ],
   },
+  importStandardImport: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'importStandardImport',
+    urlTemplate: 'https://api.lucid.co/documents',
+    description: 'Import a Lucidchart/Lucidspark diagram from Standard Import JSON. This app packages your JSON as document.json inside an import.lucid zip, then uploads it via multipart.',
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/createorcopyorimportdocument',
+    params: [
+      {
+        name: 'product',
+        label: 'Product',
+        type: 'select',
+        required: true,
+        hint: 'Target Lucid product for the new document',
+        options: [
+          { value: 'lucidchart', label: 'lucidchart' },
+          { value: 'lucidspark', label: 'lucidspark' },
+        ],
+      },
+      {
+        name: 'title',
+        label: 'Title',
+        type: 'string',
+        required: false,
+        hint: 'Optional document title',
+      },
+      {
+        name: 'parent',
+        label: 'Parent folder ID',
+        type: 'string',
+        required: false,
+        hint: 'Optional parent folder ID',
+      },
+      {
+        name: 'body',
+        label: 'Standard Import JSON (document.json)',
+        type: 'json',
+        required: true,
+        hint: 'Paste Standard Import JSON (version/pages/shapes/lines/etc).',
+        placeholder: '{\n  "version": 1,\n  "pages": [\n    {\n      "id": "page-1",\n      "title": "Generated Diagram",\n      "shapes": []\n    }\n  ]\n}',
+      },
+    ],
+  },
   getDocument: {
     surface: 'rest',
     method: 'GET',
@@ -458,6 +502,97 @@ const ENDPOINTS = {
   },
 };
 
+const SI_TEMPLATE_LIBRARY = {
+  flowchart: {
+    label: 'Flowchart Starter',
+    document: {
+      version: 1,
+      pages: [
+        {
+          id: 'page-flow',
+          title: 'API Request Flow',
+          shapes: [
+            { id: 'start', type: 'process', text: '1) User action in browser', boundingBox: { x: 80, y: 90, w: 220, h: 64 } },
+            { id: 'app', type: 'process', text: '2) Lucid API Explorer server', boundingBox: { x: 360, y: 90, w: 240, h: 64 } },
+            { id: 'lucid', type: 'process', text: '3) Lucid API surface', boundingBox: { x: 660, y: 90, w: 200, h: 64 } },
+            { id: 'resp', type: 'process', text: '4) Response + narrative shown', boundingBox: { x: 360, y: 230, w: 260, h: 64 } },
+            { id: 'hint-a', type: 'process', text: 'Flow: 1 -> 2 -> 3 -> 4', boundingBox: { x: 360, y: 320, w: 260, h: 46 } },
+            { id: 'hint-b', type: 'process', text: 'Iterate: 4 -> 1', boundingBox: { x: 80, y: 230, w: 220, h: 46 } },
+          ],
+          lines: [
+            { id: 'f1', source: 'start', target: 'app' },
+            { id: 'f2', source: 'app', target: 'lucid' },
+            { id: 'f3', source: 'lucid', target: 'resp' },
+            { id: 'f4', source: 'resp', target: 'start' },
+          ],
+        },
+      ],
+    },
+  },
+  orgchart: {
+    label: 'Org Chart Starter',
+    document: {
+      version: 1,
+      pages: [
+        {
+          id: 'page-org',
+          title: 'App Components',
+          shapes: [
+            { id: 'root', type: 'process', text: 'Lucid API Explorer', boundingBox: { x: 350, y: 40, w: 220, h: 62 } },
+            { id: 'tier1', type: 'process', text: 'Tier 1: API Surfaces', boundingBox: { x: 345, y: 140, w: 230, h: 56 } },
+            { id: 'rest', type: 'process', text: 'Tier 2: REST', boundingBox: { x: 120, y: 250, w: 170, h: 52 } },
+            { id: 'scim', type: 'process', text: 'Tier 2: SCIM', boundingBox: { x: 380, y: 250, w: 170, h: 52 } },
+            { id: 'mcp', type: 'process', text: 'Tier 2: MCP', boundingBox: { x: 640, y: 250, w: 170, h: 52 } },
+            { id: 'panel', type: 'process', text: 'Tier 3: Terminal / Code / Narrative', boundingBox: { x: 300, y: 360, w: 340, h: 56 } },
+            { id: 'org-note', type: 'process', text: 'Hierarchy reads top-down by tiers', boundingBox: { x: 300, y: 440, w: 340, h: 44 } },
+          ],
+          lines: [
+            { id: 'o1', source: 'root', target: 'tier1' },
+            { id: 'o2', source: 'tier1', target: 'rest' },
+            { id: 'o3', source: 'tier1', target: 'scim' },
+            { id: 'o4', source: 'tier1', target: 'mcp' },
+            { id: 'o5', source: 'rest', target: 'panel' },
+            { id: 'o6', source: 'scim', target: 'panel' },
+            { id: 'o7', source: 'mcp', target: 'panel' },
+          ],
+        },
+      ],
+    },
+  },
+  swimlane: {
+    label: 'Swimlane Starter',
+    document: {
+      version: 1,
+      pages: [
+        {
+          id: 'page-lane',
+          title: 'OAuth + DCR Swimlane',
+          shapes: [
+            { id: 'lane-a', type: 'process', text: 'BROWSER LANE', boundingBox: { x: 40, y: 40, w: 1040, h: 110 } },
+            { id: 'lane-b', type: 'process', text: 'APP SERVER LANE', boundingBox: { x: 40, y: 190, w: 1040, h: 120 } },
+            { id: 'lane-c', type: 'process', text: 'LUCID LANE', boundingBox: { x: 40, y: 350, w: 1040, h: 120 } },
+            { id: 'b1', type: 'process', text: '1) Browser: Click Connect MCP', boundingBox: { x: 90, y: 72, w: 280, h: 50 } },
+            { id: 's1', type: 'process', text: '2) Server: POST /oauth/register', boundingBox: { x: 420, y: 225, w: 280, h: 52 } },
+            { id: 'l1', type: 'process', text: '3) Lucid: Consent + auth', boundingBox: { x: 760, y: 385, w: 260, h: 52 } },
+            { id: 's2', type: 'process', text: '4) Server: code -> token exchange', boundingBox: { x: 760, y: 225, w: 280, h: 52 } },
+            { id: 's3', type: 'process', text: '5) Server: POST /mcp prompt', boundingBox: { x: 90, y: 225, w: 280, h: 52 } },
+            { id: 'swim-note', type: 'process', text: 'Sequence: Browser -> Server -> Lucid -> Server -> Server', boundingBox: { x: 300, y: 500, w: 520, h: 44 } },
+          ],
+          lines: [
+            { id: 'sl1', source: 'b1', target: 's1' },
+            { id: 'sl2', source: 's1', target: 'l1' },
+            { id: 'sl3', source: 'l1', target: 's2' },
+            { id: 'sl4', source: 's2', target: 's3' },
+          ],
+        },
+      ],
+    },
+  },
+};
+
+const SI_SESSION_LOG_LIMIT = 20;
+const siSessionEvents = [];
+
 // ── App state ──────────────────────────────────────────────────────────────────
 let currentEndpointKey = null;
 let lastExecutionContext = null; // stored for narrative follow-up calls
@@ -533,7 +668,7 @@ async function pollAuthStatus() {
   try {
     const res = await fetch('/auth/status');
     if (!res.ok) return;
-    const data = await res.json();
+    const data = sanitizeExecutionData(await res.json());
     updateAuthUI(data);
   } catch (_) { /* server not ready yet */ }
 }
@@ -657,7 +792,7 @@ async function renderOAuthFlowInTerminal() {
   try {
     const res = await fetch('/auth/flow-status');
     if (!res.ok) return;
-    const data = await res.json();
+    const data = sanitizeExecutionData(await res.json());
 
     // Clear terminal and write the OAuth story
     terminalOutput.innerHTML = '';
@@ -749,7 +884,7 @@ async function renderAccountOAuthFlowInTerminal() {
   try {
     const res = await fetch('/auth/account-flow-status');
     if (!res.ok) return;
-    const data = await res.json();
+    const data = sanitizeExecutionData(await res.json());
 
     terminalOutput.innerHTML = '';
     addTerminalSection('── OAUTH 2.0 ACCOUNT TOKEN FLOW ────────────────────────────');
@@ -1758,7 +1893,7 @@ const FALLBACK_SCOPES = {
     { scope: 'user.profile', description: "Read the authenticated user's own extended profile", endpoints: ['getUserProfile'], enterprise_only: false },
     { scope: 'account.info', description: 'Read basic account information (name, plan, ID)', endpoints: ['getAccountInfo'], enterprise_only: false },
     { scope: 'lucidchart.document.content:readonly', description: 'Read Lucidchart document metadata and content', endpoints: ['searchDocuments', 'getDocument', 'getDocumentContents'], enterprise_only: false },
-    { scope: 'lucidchart.document.content', description: 'Read and modify Lucidchart documents (create, trash)', endpoints: ['createDocument', 'trashDocument'], enterprise_only: false },
+    { scope: 'lucidchart.document.content', description: 'Read and modify Lucidchart documents (create, import, trash)', endpoints: ['createDocument', 'importStandardImport', 'trashDocument'], enterprise_only: false },
     { scope: 'folder:readonly', description: 'List folders and read their contents', endpoints: ['getFolder', 'listFolderContents', 'listRootFolderContents'], enterprise_only: false },
     { scope: 'folder', description: 'Create, rename, trash, and restore folders', endpoints: ['createFolder', 'updateFolder', 'trashFolder', 'restoreFolder'], enterprise_only: false },
     { scope: 'offline_access', description: 'Receive a refresh token — allows renewing access without re-authenticating', endpoints: ['(refresh token — not endpoint-specific)'], enterprise_only: false },
@@ -1792,7 +1927,7 @@ async function openScopeSelector(flowType = 'user') {
       } catch (_) {}
       throw new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
     }
-    const data = await res.json();
+    const data = sanitizeExecutionData(await res.json());
     const scopes = flowType === 'account' ? data.account : data.user;
     renderScopeList(scopes);
   } catch (err) {
@@ -2225,6 +2360,15 @@ function renderParamFields(params) {
       wrapper.appendChild(tokenHelper);
     }
 
+    // Standard Import helper controls: template gallery + Claude generation.
+    if (
+      currentEndpointKey === 'importStandardImport' &&
+      param.name === 'body' &&
+      param.type === 'json'
+    ) {
+      wrapper.appendChild(renderSiGalleryControls(input));
+    }
+
     if (param.hint && param.type !== 'json' && param.type !== 'tokenSource' && param.type !== 'select') wrapper.appendChild(hint);
     // errMsg always last so the .param-input.error ~ .param-error-msg selector works
     wrapper.appendChild(errMsg);
@@ -2254,6 +2398,52 @@ function collectParams() {
   return valid ? values : null;
 }
 
+function renderSiGalleryControls(targetInput) {
+  const box = document.createElement('div');
+  box.className = 'si-gallery';
+  box.innerHTML = `
+    <div class="si-gallery-title">Standard Import Gallery</div>
+    <div class="si-gallery-row">
+      <button class="btn-ghost btn-sm si-template-btn" data-template="flowchart">Flowchart starter</button>
+      <button class="btn-ghost btn-sm si-template-btn" data-template="orgchart">Org chart starter</button>
+      <button class="btn-ghost btn-sm si-template-btn" data-template="swimlane">Swimlane starter</button>
+    </div>
+    <div class="si-gallery-row si-gallery-claude-row">
+      <input id="si-claude-prompt" class="param-input si-claude-prompt" type="text"
+        placeholder="Ask Claude: 'Diagram how this app works with REST + MCP auth'" />
+      <button id="btn-si-generate" class="btn-primary btn-sm">Generate with Claude</button>
+    </div>
+    <div id="si-gallery-status" class="si-gallery-status"></div>
+  `;
+
+  box.querySelectorAll('.si-template-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.template;
+      const tpl = SI_TEMPLATE_LIBRARY[key];
+      if (!tpl) return;
+      targetInput.value = JSON.stringify(tpl.document, null, 2);
+      targetInput.classList.remove('error');
+      const status = box.querySelector('#si-gallery-status');
+      status.textContent = `Injected template: ${tpl.label}`;
+      status.className = 'si-gallery-status ok';
+    });
+  });
+
+  box.querySelector('#btn-si-generate').addEventListener('click', async (e) => {
+    const promptEl = box.querySelector('#si-claude-prompt');
+    const statusEl = box.querySelector('#si-gallery-status');
+    const prompt = promptEl.value.trim();
+    if (!prompt) {
+      statusEl.textContent = 'Enter a prompt for Claude first.';
+      statusEl.className = 'si-gallery-status err';
+      return;
+    }
+    await generateSiWithClaude(prompt, targetInput, statusEl, e.currentTarget);
+  });
+
+  return box;
+}
+
 // ── Execution ──────────────────────────────────────────────────────────────────
 
 btnExecute.addEventListener('click', async () => {
@@ -2263,6 +2453,21 @@ btnExecute.addEventListener('click', async () => {
   if (params === null) {
     appendTerminalMessage("Can't send a request with missing required fields. Fill them in.", 'err');
     return;
+  }
+
+  if (currentEndpointKey === 'importStandardImport') {
+    const preflight = validateStandardImportParams(params);
+    const siBodyInput = $('#param-body');
+    if (siBodyInput) siBodyInput.classList.remove('error');
+
+    if (!preflight.ok) {
+      if (siBodyInput) siBodyInput.classList.add('error');
+      appendTerminalMessage('Standard Import preflight failed. Fix these issues and retry:', 'err');
+      preflight.errors.forEach(msg => appendTerminalMessage(`• ${msg}`, 'err'));
+      return;
+    }
+
+    preflight.warnings.forEach(msg => appendTerminalMessage(`⚠ Preflight warning: ${msg}`, 'out'));
   }
 
   const ep = ENDPOINTS[currentEndpointKey];
@@ -2291,7 +2496,7 @@ async function executeEndpoint(ep, params) {
     });
 
     const latency = Date.now() - startTime;
-    const data = await res.json();
+    const data = sanitizeExecutionData(await res.json());
 
     // Re-animate with real status code now that we have the response
     archAnimate(ep.surface || 'rest', ep.method || 'POST', ep.urlTemplate || '', data.status_code || res.status);
@@ -2304,6 +2509,14 @@ async function executeEndpoint(ep, params) {
 
     // Update code tab
     renderCode(data);
+
+    recordSiSessionEvent({
+      kind: 'rest_call',
+      endpoint: currentEndpointKey,
+      method: reqMethodFromData(data) || ep.method,
+      status_code: data.status_code,
+      timestamp: new Date().toISOString(),
+    });
 
     // Store for on-demand narrative — don't auto-fetch to save tokens
     lastExecutionContext = data;
@@ -2350,9 +2563,8 @@ function renderTerminal(data) {
 
   if (req.headers) {
     Object.entries(req.headers).forEach(([k, v]) => {
-      // Partially redact auth tokens
       const display = k.toLowerCase() === 'authorization'
-        ? v.replace(/(Bearer\s+)(\w{6})\w+/, '$1$2••••••••')
+        ? redactAuthHeaderValue(v)
         : v;
       addTerminalLine('', `  ${k}: ${display}`, 'out');
     });
@@ -2450,7 +2662,7 @@ function generateCurl(req) {
   const headers = Object.entries(req.headers || {})
     .map(([k, v]) => {
       const display = k.toLowerCase() === 'authorization'
-        ? v.replace(/(Bearer\s+)(\w{6})\w+/, '$1$2••••••••')
+        ? redactAuthHeaderValue(v)
         : v;
       return `-H '${k}: ${display}'`;
     })
@@ -2462,7 +2674,11 @@ function generateCurl(req) {
 function generatePython(req) {
   if (!req.url) return 'No request data available.';
   const method = (req.method || 'GET').toLowerCase();
-  const headers = JSON.stringify(req.headers || {}, null, 2).replace(/^/gm, '    ').trimStart();
+  const safeHeaders = { ...(req.headers || {}) };
+  Object.keys(safeHeaders).forEach((k) => {
+    if (k.toLowerCase() === 'authorization') safeHeaders[k] = redactAuthHeaderValue(safeHeaders[k]);
+  });
+  const headers = JSON.stringify(safeHeaders, null, 2).replace(/^/gm, '    ').trimStart();
   const bodyLine = req.body
     ? `\njson = ${JSON.stringify(typeof req.body === 'string' ? JSON.parse(req.body) : req.body, null, 2)}`
     : '';
@@ -2483,7 +2699,7 @@ async function fetchNarrative(executionData) {
     });
 
     if (!res.ok) throw new Error(`${res.status}`);
-    const data = await res.json();
+    const data = sanitizeExecutionData(await res.json());
     renderNarrative(data.narrative);
   } catch (err) {
     narrativeOutput.innerHTML = `<span style="color:var(--error-red)">Narrative unavailable: ${escapeHtml(err.message)}</span>`;
@@ -2556,7 +2772,7 @@ async function submitFollowup() {
     });
 
     if (!res.ok) throw new Error(`${res.status}`);
-    const data = await res.json();
+    const data = sanitizeExecutionData(await res.json());
     responseEl.innerHTML = `<strong>Q: ${escapeHtml(question)}</strong><br>${escapeHtml(data.answer)}`;
   } catch (err) {
     responseEl.innerHTML = `<strong>Q: ${escapeHtml(question)}</strong><br><span style="color:var(--error-red)">Error: ${escapeHtml(err.message)}</span>`;
@@ -2634,13 +2850,22 @@ btnMcpSubmit.addEventListener('click', async () => {
       body: JSON.stringify({ prompt }),
     });
 
-    const data = await res.json();
+    const data = sanitizeExecutionData(await res.json());
     // Re-animate with real status code
     archAnimate('mcp', 'POST', '/api/mcp/prompt', data.status_code || res.status);
     renderMcpResponse(data);
 
     renderTerminal(data);
     renderCode(data);
+
+    recordSiSessionEvent({
+      kind: 'mcp_prompt',
+      endpoint: 'mcpPrompt',
+      method: 'POST',
+      status_code: data.status_code,
+      timestamp: new Date().toISOString(),
+      prompt_preview: prompt.slice(0, 120),
+    });
 
     // Store for on-demand narrative — same pattern as executeEndpoint (preserves API tokens)
     lastExecutionContext = data;
@@ -2771,12 +2996,212 @@ btnBackMcp.addEventListener('click', () => {
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
 
+function reqMethodFromData(data) {
+  return data && data.request ? data.request.method : '';
+}
+
+function recordSiSessionEvent(event) {
+  siSessionEvents.push(event);
+  if (siSessionEvents.length > SI_SESSION_LOG_LIMIT) siSessionEvents.shift();
+}
+
+function buildSiGenerationContext() {
+  return {
+    auth_status_label: authLabel ? authLabel.textContent : 'unknown',
+    current_endpoint: currentEndpointKey || null,
+    recent_events: siSessionEvents.slice(-10),
+    known_surfaces: ['REST', 'SCIM', 'MCP'],
+  };
+}
+
+async function generateSiWithClaude(prompt, targetInput, statusEl, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  statusEl.textContent = 'Claude is generating Standard Import JSON...';
+  statusEl.className = 'si-gallery-status';
+
+  try {
+    const res = await fetch('/ai/standard-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        context: buildSiGenerationContext(),
+      }),
+    });
+    const data = await res.json();
+    if (!data.document) {
+      throw new Error(data.error || `Generation failed (${res.status})`);
+    }
+    targetInput.value = JSON.stringify(data.document, null, 2);
+    targetInput.classList.remove('error');
+    statusEl.textContent = 'Claude JSON generated and injected. Review, then click Execute.';
+    statusEl.className = 'si-gallery-status ok';
+  } catch (err) {
+    statusEl.textContent = `Could not generate JSON: ${err.message}`;
+    statusEl.className = 'si-gallery-status err';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate with Claude';
+  }
+}
+
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function redactAuthHeaderValue(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^Bearer\s+(.+)$/i);
+  if (!match) return raw;
+  const token = match[1].trim();
+  if (!token) return 'Bearer ••••••••';
+  return `Bearer ${token.slice(0, 10)}••••••••`;
+}
+
+function sanitizeExecutionData(data) {
+  if (!data || typeof data !== 'object') return data;
+  let copy;
+  try {
+    copy = JSON.parse(JSON.stringify(data));
+  } catch (_) {
+    return data;
+  }
+  if (copy.request && copy.request.headers) {
+    Object.keys(copy.request.headers).forEach((k) => {
+      if (k.toLowerCase() === 'authorization') {
+        copy.request.headers[k] = redactAuthHeaderValue(copy.request.headers[k]);
+      }
+    });
+  }
+  return copy;
+}
+
+function validateStandardImportParams(params) {
+  const errors = [];
+  const warnings = [];
+
+  const product = (params.product || '').trim().toLowerCase();
+  if (!product) errors.push('Product is required (lucidchart or lucidspark).');
+  else if (!['lucidchart', 'lucidspark'].includes(product)) {
+    errors.push(`Product "${product}" is invalid. Use lucidchart or lucidspark.`);
+  }
+
+  const rawBody = (params.body || '').trim();
+  if (!rawBody) {
+    errors.push('Standard Import JSON body is required.');
+    return { ok: false, errors, warnings };
+  }
+
+  let doc;
+  try {
+    doc = JSON.parse(rawBody);
+  } catch (err) {
+    errors.push(`Body is not valid JSON: ${err.message}`);
+    return { ok: false, errors, warnings };
+  }
+
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    errors.push('Top-level JSON must be an object.');
+    return { ok: false, errors, warnings };
+  }
+
+  if (doc.version === undefined) errors.push('Missing required top-level field: "version".');
+  else if (typeof doc.version !== 'number') errors.push('"version" must be a number.');
+  else if (doc.version !== 1) warnings.push(`"version" is ${doc.version}; most Standard Import payloads use version 1.`);
+
+  if (!Array.isArray(doc.pages)) {
+    errors.push('Missing required top-level field: "pages" (must be an array).');
+    return { ok: false, errors, warnings };
+  }
+
+  if (doc.pages.length === 0) {
+    warnings.push('"pages" is empty; Lucid may create a blank document.');
+  }
+
+  doc.pages.forEach((page, idx) => {
+    const n = idx + 1;
+    if (!page || typeof page !== 'object' || Array.isArray(page)) {
+      errors.push(`pages[${idx}] must be an object.`);
+      return;
+    }
+    if (page.shapes !== undefined && !Array.isArray(page.shapes)) {
+      errors.push(`pages[${idx}].shapes must be an array when provided.`);
+    }
+    if (page.lines !== undefined && !Array.isArray(page.lines)) {
+      errors.push(`pages[${idx}].lines must be an array when provided.`);
+    }
+    if (!page.id) warnings.push(`Page ${n} has no "id".`);
+    if (!page.title) warnings.push(`Page ${n} has no "title".`);
+
+    if (Array.isArray(page.shapes)) {
+      page.shapes.forEach((shape, sIdx) => {
+        if (!shape || typeof shape !== 'object' || Array.isArray(shape)) {
+          errors.push(`pages[${idx}].shapes[${sIdx}] must be an object.`);
+          return;
+        }
+        if (!shape.id) warnings.push(`pages[${idx}].shapes[${sIdx}] has no "id".`);
+        if (!shape.type) warnings.push(`pages[${idx}].shapes[${sIdx}] has no "type".`);
+
+        const bb = shape.boundingBox;
+        const hasLegacyCoords =
+          Number.isFinite(shape.x) &&
+          Number.isFinite(shape.y) &&
+          Number.isFinite(shape.width) &&
+          Number.isFinite(shape.height);
+
+        if (!bb && !hasLegacyCoords) {
+          errors.push(`pages[${idx}].shapes[${sIdx}] needs "boundingBox" (or x/y/width/height).`);
+        }
+        if (bb && (
+          !Number.isFinite(bb.x) ||
+          !Number.isFinite(bb.y) ||
+          !Number.isFinite(bb.w) ||
+          !Number.isFinite(bb.h)
+        )) {
+          errors.push(`pages[${idx}].shapes[${sIdx}].boundingBox must include numeric x,y,w,h.`);
+        }
+        if (hasLegacyCoords && !bb) {
+          warnings.push(`pages[${idx}].shapes[${sIdx}] uses x/y/width/height; app will auto-convert to boundingBox.`);
+        }
+      });
+    }
+
+    if (Array.isArray(page.lines)) {
+      page.lines.forEach((line, lIdx) => {
+        if (!line || typeof line !== 'object' || Array.isArray(line)) {
+          errors.push(`pages[${idx}].lines[${lIdx}] must be an object.`);
+          return;
+        }
+        const hasEndpoints =
+          line.endpoint1 && line.endpoint2 &&
+          typeof line.endpoint1 === 'object' &&
+          typeof line.endpoint2 === 'object';
+        const hasSimpleRefs =
+          typeof line.source === 'string' &&
+          line.source &&
+          typeof line.target === 'string' &&
+          line.target;
+
+        if (!hasEndpoints && !hasSimpleRefs) {
+          errors.push(`pages[${idx}].lines[${lIdx}] must provide endpoint1/endpoint2 or source/target.`);
+        }
+        if (hasSimpleRefs && !hasEndpoints) {
+          warnings.push(`pages[${idx}].lines[${lIdx}] uses source/target; server will normalize this line format.`);
+        }
+      });
+    }
+  });
+
+  if (rawBody.length > 500000) {
+    warnings.push(`Payload is large (${rawBody.length.toLocaleString()} chars); import may be slower.`);
+  }
+
+  return { ok: errors.length === 0, errors, warnings };
 }
 
 // ── Scope Summary Panel ───────────────────────────────────────────────────────

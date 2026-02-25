@@ -11,6 +11,8 @@ All REST API calls flow through execute_rest_call(). It:
 
 import time
 import json
+import io
+import zipfile
 from datetime import datetime, timedelta
 
 import httpx
@@ -91,6 +93,13 @@ ENDPOINT_REGISTRY: dict[str, dict] = {
         "has_body": True,
         "token": "user",
         "scope": "lucidchart.document.content",
+    },
+    "importStandardImport": {
+        "method": "POST",
+        "url": lambda p: _url("/documents"),
+        "token": "user",
+        "scope": "lucidchart.document.content",
+        "import_mode": "standard_import",
     },
     "getDocument": {
         "method": "GET",
@@ -246,6 +255,15 @@ async def execute_rest_call(endpoint_key: str, params: dict) -> dict:
         "Lucid-Api-Version": "1",
     }
 
+    # ── Standard Import multipart call ───────────────────────────────────────
+    if ep.get("import_mode") == "standard_import":
+        return await _execute_standard_import_call(
+            url=url,
+            params=params,
+            headers=headers,
+            auth_method_label=auth_method_label,
+        )
+
     # Parse body for POST/PUT/PATCH endpoints
     body = None
     if ep.get("has_body") and params.get("body"):
@@ -305,6 +323,343 @@ async def execute_rest_call(endpoint_key: str, params: dict) -> dict:
 
 
 # ── Token management call handler ─────────────────────────────────────────────
+
+async def _execute_standard_import_call(
+    url: str,
+    params: dict,
+    headers: dict,
+    auth_method_label: str,
+) -> dict:
+    """
+    Execute a Lucid Standard Import by uploading a generated .lucid zip file.
+
+    Expected params from the frontend:
+      - body: required Standard Import JSON text (document.json contents)
+      - product: required ('lucidchart' or 'lucidspark')
+      - title: optional
+      - parent: optional folder ID
+    """
+    raw_body = (params.get("body") or "").strip()
+    product = (params.get("product") or "").strip().lower()
+    title = (params.get("title") or "").strip()
+    parent = (params.get("parent") or "").strip()
+
+    if not raw_body:
+        return _error_result(
+            "Standard Import JSON is required. Provide it in the 'body' field."
+        )
+    if product not in {"lucidchart", "lucidspark"}:
+        return _error_result(
+            "Invalid 'product'. Use 'lucidchart' or 'lucidspark'."
+        )
+
+    # Validate JSON and serialize in a stable format before packaging into .lucid.
+    try:
+        doc_json = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        return _error_result(f"Invalid Standard Import JSON: {exc}")
+
+    # Backward-compatible normalization:
+    # - fill missing page/shape IDs
+    # - normalize label/type aliases from model output
+    # - allow simple x/y/width/height geometry and convert to boundingBox
+    # - convert simple page.lines references into line shapes
+    _normalize_standard_import_document(doc_json)
+    _normalize_standard_import_shapes(doc_json)
+    _normalize_standard_import_lines_to_shapes(doc_json)
+
+    def _build_lucid_bytes(payload: dict) -> bytes:
+        lucid_buf = io.BytesIO()
+        with zipfile.ZipFile(lucid_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("document.json", json.dumps(payload, separators=(",", ":")))
+        return lucid_buf.getvalue()
+
+    lucid_bytes = _build_lucid_bytes(doc_json)
+
+    form_data = {
+        "type": "x-application/vnd.lucid.standardImport",
+        "product": product,
+    }
+    if title:
+        form_data["title"] = title
+    if parent:
+        form_data["parent"] = parent
+
+    async def _upload_once(payload_bytes: bytes):
+        files = {
+            "file": (
+                "import.lucid",
+                payload_bytes,
+                "x-application/vnd.lucid.standardImport",
+            )
+        }
+        request_log_local = {
+            "method": "POST",
+            "url": url,
+            "headers": headers,
+            "body": {
+                **form_data,
+                "file": {
+                    "name": "import.lucid",
+                    "content_type": "x-application/vnd.lucid.standardImport",
+                    "bytes": len(payload_bytes),
+                    "entries": ["document.json"],
+                },
+                "document_json_chars": len(raw_body),
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        start = time.monotonic()
+        try:
+            async with httpx.AsyncClient() as client:
+                response_local = await client.post(
+                    url=url,
+                    headers=headers,
+                    data=form_data,
+                    files=files,
+                    timeout=30.0,
+                )
+        except httpx.RequestError as exc:
+            return None, 0, {"error": f"Network error: {exc}"}, request_log_local
+
+        latency_ms_local = int((time.monotonic() - start) * 1000)
+        try:
+            response_body_local = response_local.json()
+        except Exception:
+            response_body_local = {"raw": response_local.text}
+        return response_local, latency_ms_local, response_body_local, request_log_local
+
+    response, latency_ms, response_body, request_log = await _upload_once(lucid_bytes)
+    if response is None:
+        return _error_result(response_body.get("error", "Network error"), request_log=request_log)
+
+    # Fallback path: if SI rejects connector payloads, retry once with all lines removed.
+    # This preserves a successful document import while we keep improving line fidelity.
+    details = response_body.get("details") if isinstance(response_body, dict) else {}
+    import_error_code = details.get("import_error_code") if isinstance(details, dict) else None
+    if response.status_code == 400 and import_error_code == "invalid_file":
+        retry_doc = json.loads(json.dumps(doc_json))
+        _strip_line_artifacts(retry_doc)
+        retry_bytes = _build_lucid_bytes(retry_doc)
+        retry_response, retry_latency, retry_body, retry_request_log = await _upload_once(retry_bytes)
+        if retry_response is not None and retry_response.status_code < 400:
+            response = retry_response
+            latency_ms = retry_latency
+            response_body = retry_body
+            request_log = retry_request_log
+            request_log["body"]["line_fallback"] = "retry_without_lines"
+
+    result = {
+        "status_code": response.status_code,
+        "body": response_body,
+        "request": request_log,
+        "response_headers": dict(response.headers),
+        "auth_method": auth_method_label,
+        "latency_ms": latency_ms,
+        "curl_command": _build_curl_standard_import(url, headers, form_data),
+        "python_snippet": _build_python_standard_import(url, headers, form_data),
+    }
+    state.last_request = request_log
+    state.last_response = result
+    return result
+
+
+def _normalize_standard_import_shapes(doc_json: dict) -> None:
+    """
+    Normalize shapes in-place to Standard Import format.
+
+    Converts legacy/simple coordinates:
+      x, y, width, height
+    into:
+      boundingBox: {x, y, w, h}
+    """
+    pages = doc_json.get("pages")
+    if not isinstance(pages, list):
+        return
+
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        shapes = page.get("shapes")
+        if not isinstance(shapes, list):
+            continue
+        for shape in shapes:
+            if not isinstance(shape, dict):
+                continue
+            # Use the most stable schema subset for broad compatibility.
+            # "style" payloads from AI are often diagram-engine-specific and can
+            # invalidate imports, so we strip them server-side.
+            shape.pop("style", None)
+            if isinstance(shape.get("boundingBox"), dict):
+                continue
+            x = shape.get("x")
+            y = shape.get("y")
+            w = shape.get("w", shape.get("width"))
+            h = shape.get("h", shape.get("height"))
+            if all(isinstance(v, (int, float)) for v in (x, y, w, h)):
+                shape["boundingBox"] = {
+                    "x": x,
+                    "y": y,
+                    "w": w,
+                    "h": h,
+                }
+                shape.pop("x", None)
+                shape.pop("y", None)
+                shape.pop("width", None)
+                shape.pop("height", None)
+
+
+def _normalize_standard_import_document(doc_json: dict) -> None:
+    """
+    Fill common missing fields and alias names from model/template output.
+    """
+    if not isinstance(doc_json, dict):
+        return
+
+    if "version" not in doc_json:
+        doc_json["version"] = 1
+
+    pages = doc_json.get("pages")
+    if not isinstance(pages, list):
+        return
+
+    for p_idx, page in enumerate(pages):
+        if not isinstance(page, dict):
+            continue
+        if not page.get("id"):
+            page["id"] = f"page-{p_idx + 1}"
+        if not page.get("title"):
+            page["title"] = f"Page {p_idx + 1}"
+        if not isinstance(page.get("shapes"), list):
+            page["shapes"] = []
+
+        for s_idx, shape in enumerate(page["shapes"]):
+            if not isinstance(shape, dict):
+                continue
+            if not shape.get("id"):
+                shape["id"] = f"{page['id']}-shape-{s_idx + 1}"
+            # Common alias from model output
+            if "label" in shape and "text" not in shape:
+                shape["text"] = shape.get("label")
+            shape.pop("label", None)
+            # Coerce generic/fragile type variants into stable block shapes.
+            shape_type = str(shape.get("type") or "").lower()
+            if shape_type in {"", "shape"}:
+                shape["type"] = "process"
+            elif shape_type not in {"process", "terminator", "decision", "data", "line"}:
+                shape["type"] = "process"
+
+
+def _normalize_standard_import_lines_to_shapes(doc_json: dict) -> None:
+    """
+    Normalize page.lines to Lucid Standard Import line schema.
+
+    Supported input forms:
+    - simplified: {id, source, target, text?}
+    - explicit: {id, lineType, endpoint1, endpoint2, ...}
+    """
+    pages = doc_json.get("pages")
+    if not isinstance(pages, list):
+        return
+
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        lines = page.get("lines")
+        shapes = page.get("shapes")
+        if not isinstance(lines, list) or not isinstance(shapes, list):
+            page.pop("lines", None)
+            continue
+
+        shape_by_id: dict[str, dict] = {}
+        for s in shapes:
+            if isinstance(s, dict) and isinstance(s.get("id"), str):
+                shape_by_id[s["id"]] = s
+
+        normalized_lines: list[dict] = []
+        for idx, line in enumerate(lines):
+            if not isinstance(line, dict):
+                continue
+            source = line.get("source")
+            target = line.get("target")
+            line_id = line.get("id") or f"{page.get('id', 'page')}-line-{idx + 1}"
+
+            # Already explicit endpoint form
+            if isinstance(line.get("endpoint1"), dict) and isinstance(line.get("endpoint2"), dict):
+                endpoint1 = dict(line["endpoint1"])
+                endpoint2 = dict(line["endpoint2"])
+                if endpoint1.get("type") == "shapeEndpoint" and isinstance(endpoint1.get("shapeId"), str):
+                    if endpoint1["shapeId"] not in shape_by_id:
+                        continue
+                    endpoint1.setdefault("style", "none")
+                if endpoint2.get("type") == "shapeEndpoint" and isinstance(endpoint2.get("shapeId"), str):
+                    if endpoint2["shapeId"] not in shape_by_id:
+                        continue
+                    endpoint2.setdefault("style", "arrow")
+            else:
+                # Simple source/target form
+                if not (isinstance(source, str) and isinstance(target, str)):
+                    continue
+                if source not in shape_by_id or target not in shape_by_id:
+                    continue
+                endpoint1 = {
+                    "type": "shapeEndpoint",
+                    "style": "none",
+                    "shapeId": source,
+                }
+                endpoint2 = {
+                    "type": "shapeEndpoint",
+                    "style": "arrow",
+                    "shapeId": target,
+                }
+
+            normalized_line = {
+                "id": line_id,
+                "lineType": line.get("lineType") or "straight",
+                "endpoint1": endpoint1,
+                "endpoint2": endpoint2,
+            }
+
+            # SI expects line text as an array of text-area objects.
+            line_text = line.get("text")
+            if isinstance(line_text, str) and line_text.strip():
+                normalized_line["text"] = [{
+                    "text": line_text.strip(),
+                    "position": 0.5,
+                    "side": "middle",
+                }]
+            elif isinstance(line_text, list):
+                normalized_line["text"] = line_text
+
+            normalized_lines.append(normalized_line)
+
+        if normalized_lines:
+            page["lines"] = normalized_lines
+        else:
+            page.pop("lines", None)
+
+
+def _strip_line_artifacts(doc_json: dict) -> None:
+    """
+    Remove all line primitives from an SI document (both page.lines and shape.type=line).
+    Used as a retry fallback when Lucid rejects connector payloads.
+    """
+    pages = doc_json.get("pages")
+    if not isinstance(pages, list):
+        return
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        page.pop("lines", None)
+        shapes = page.get("shapes")
+        if not isinstance(shapes, list):
+            continue
+        page["shapes"] = [
+            s for s in shapes
+            if not (isinstance(s, dict) and str(s.get("type", "")).lower() == "line")
+        ]
+
 
 async def _execute_token_management_call(
     endpoint_key: str,
@@ -585,6 +940,54 @@ def _build_python_form(url: str, body: dict, content_type: str) -> str:
         f"payload = {json.dumps(body, indent=4)}\n\n"
         f"response = requests.post(\n    '{url}',\n    data=payload\n)\n\n"
         f"print(response.status_code)\nprint(response.json())"
+    )
+
+
+def _build_curl_standard_import(url: str, headers: dict, form_data: dict) -> str:
+    """Generate a cURL snippet for Standard Import using a local import.lucid file."""
+    auth = _redact_auth("Authorization", headers.get("Authorization", "Bearer ••••••••"))
+    lines = [
+        f"curl -X POST '{url}' \\",
+        f"     -H 'Authorization: {auth}' \\",
+        "     -H 'Lucid-Api-Version: 1' \\",
+        "     -F 'file=@import.lucid;type=x-application/vnd.lucid.standardImport' \\",
+        f"     -F 'type={form_data['type']}' \\",
+        f"     -F 'product={form_data['product']}'",
+    ]
+    if form_data.get("title"):
+        lines[-1] += " \\"
+        lines.append(f"     -F 'title={form_data['title']}'")
+    if form_data.get("parent"):
+        lines[-1] += " \\"
+        lines.append(f"     -F 'parent={form_data['parent']}'")
+    return "\n".join(lines)
+
+
+def _build_python_standard_import(url: str, headers: dict, form_data: dict) -> str:
+    """Generate a Python requests snippet for Standard Import."""
+    safe_auth = _redact_auth("Authorization", headers.get("Authorization", "Bearer ••••••••"))
+    data = {"type": form_data["type"], "product": form_data["product"]}
+    if form_data.get("title"):
+        data["title"] = form_data["title"]
+    if form_data.get("parent"):
+        data["parent"] = form_data["parent"]
+    return (
+        "import json\n"
+        "import io\n"
+        "import zipfile\n"
+        "import requests\n\n"
+        "# Build import.lucid from Standard Import JSON\n"
+        "document = {\"version\": 1, \"pages\": []}  # replace with your Standard Import JSON\n"
+        "buf = io.BytesIO()\n"
+        "with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:\n"
+        "    zf.writestr('document.json', json.dumps(document, separators=(',', ':')))\n"
+        "buf.seek(0)\n\n"
+        f"headers = {{'Authorization': '{safe_auth}', 'Lucid-Api-Version': '1'}}\n"
+        f"data = {json.dumps(data, indent=4)}\n"
+        "files = {'file': ('import.lucid', buf.getvalue(), 'x-application/vnd.lucid.standardImport')}\n\n"
+        f"response = requests.post('{url}', headers=headers, data=data, files=files)\n"
+        "print(response.status_code)\n"
+        "print(response.json())\n"
     )
 
 

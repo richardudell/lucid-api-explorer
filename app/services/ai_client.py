@@ -16,6 +16,8 @@ All calls use the messages API with a system prompt that establishes Claude's
 role as a direct, technically accurate API educator.
 """
 
+import json as pyjson
+
 import anthropic
 
 from app.config import ANTHROPIC_API_KEY
@@ -184,6 +186,61 @@ Keep your response to 3-5 sentences."""
     return message.content[0].text
 
 
+async def generate_standard_import_json(prompt: str, context: dict | None = None) -> dict:
+    """
+    Generate Lucid Standard Import JSON from a prompt and optional app context.
+    Returns a parsed JSON object.
+    """
+    ctx = context or {}
+    ctx_text = _truncate(pyjson.dumps(ctx, ensure_ascii=True), 2500)
+
+    user_prompt = f"""Generate a Lucid Standard Import JSON document.
+
+User intent:
+{prompt}
+
+Live app context:
+{ctx_text}
+
+Requirements:
+- Return VALID JSON only (no markdown or prose).
+- Top-level object must include "version": 1 and "pages": [ ... ].
+- Every page must include: id, title, shapes.
+- Build an educational diagram about Lucid API Explorer internals and/or recent usage.
+- Use one page with readable labels and connections.
+- Keep structure practical: 6-18 shapes.
+- For shape geometry, use shape.boundingBox with numeric x,y,w,h.
+- For each shape include: id, type, text, boundingBox.
+- Prefer compact canvas layout (roughly within x: 0-1200, y: 0-900), avoid ultra-tall single-column stacks.
+- Use "process" for normal blocks.
+- Do not include shape.style.
+- Optional: include page.lines using source/target (shape IDs) to express flow.
+- Do not create line objects inside shapes.
+
+Return only the raw JSON object."""
+
+    message = _client.messages.create(
+        model=MODEL,
+        max_tokens=2200,
+        system=_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    raw = message.content[0].text.strip()
+    data = _parse_json_object_loose(raw)
+    if data is None:
+        repaired = _repair_json_with_model(raw)
+        data = _parse_json_object_loose(repaired)
+
+    if data is None:
+        raise ValueError("Model returned malformed JSON that could not be repaired.")
+    if not isinstance(data, dict):
+        raise ValueError("Model response was not a JSON object.")
+    if data.get("version") != 1 or not isinstance(data.get("pages"), list):
+        raise ValueError("Generated JSON missing required Standard Import fields (version/pages).")
+    return data
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _redact_headers(headers: dict) -> dict:
@@ -204,3 +261,53 @@ def _truncate(obj: object, max_chars: int) -> str:
     if len(text) > max_chars:
         return text[:max_chars] + "…"
     return text
+
+
+def _parse_json_object_loose(raw: str) -> dict | None:
+    """
+    Parse JSON object from model output with light cleanup:
+    - strips code fences
+    - extracts text between first '{' and last '}'
+    """
+    if not raw:
+        return None
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text.replace("json\n", "", 1).strip()
+
+    # direct parse first
+    try:
+        data = pyjson.loads(text)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    candidate = text[start:end + 1]
+    try:
+        data = pyjson.loads(candidate)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _repair_json_with_model(raw: str) -> str:
+    """
+    Ask the model to repair malformed JSON with strict output constraints.
+    """
+    repair_prompt = f"""The following is intended to be JSON but is malformed.
+Return ONLY valid JSON (no markdown, no commentary), preserving intent.
+
+Malformed JSON:
+{_truncate(raw, 12000)}"""
+    repaired = _client.messages.create(
+        model=MODEL,
+        max_tokens=2200,
+        system=_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": repair_prompt}],
+    )
+    return repaired.content[0].text.strip()
