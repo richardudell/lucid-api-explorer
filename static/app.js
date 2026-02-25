@@ -500,9 +500,10 @@ const mcpPromptInput    = $('#mcp-prompt-input');
 const btnMcpSubmit      = $('#btn-mcp-submit');
 const mcpResponseViewer = $('#mcp-response-viewer');
 const mcpResponseContent = $('#mcp-response-content');
+const mcpStructuredResults = $('#mcp-structured-results');
+const mcpRawControls = $('#mcp-raw-controls');
+const btnMcpRawToggle = $('#btn-mcp-raw-toggle');
 const mcpAuthBanner     = $('#mcp-auth-banner');
-// Note: btn-mcp-how, btn-mcp-connect, btn-mcp-reconnect are wired via
-// event delegation on mcpAuthBanner — never grabbed as top-level consts.
 
 // Bottom panel
 const panelTabs     = $$('.panel-tab');
@@ -1578,7 +1579,7 @@ function _dcrRenderStep(idx) {
     p.className = 'dcr-packet';
     p.textContent = '';
     p.style.transition = 'none';
-    p.style.left = step.arrowEffect?.dir === 'right' ? '0%' : '92%';
+    p.style.left = '0px';
   });
 
   if (_dcrAnimTimer) { clearTimeout(_dcrAnimTimer); _dcrAnimTimer = null; }
@@ -1591,25 +1592,43 @@ function _dcrRenderStep(idx) {
   const ae = step.arrowEffect;
   if (ae) {
     const packet = ae.track === 1 ? _dcrPacket1 : _dcrPacket2;
-    const startPct = ae.dir === 'right' ? '0%' : '92%';
-    const endPct   = ae.dir === 'right' ? '88%' : '4%';
 
     packet.textContent = ae.label;
     packet.classList.add(ae.packetClass);
+    packet.classList.remove('dcr-packet-dock');
     packet.style.transition = 'none';
-    packet.style.left = startPct;
+    packet.style.left = '0px';
 
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      packet.style.transition = 'left 0.65s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease';
+      // Compute travel in px so long labels don't overlap destination actors.
+      const trackWidth = packet.parentElement ? packet.parentElement.clientWidth : 0;
+      const packetWidth = packet.offsetWidth;
+      const gapPx = 12;
+      const maxRight = Math.max(gapPx, trackWidth - packetWidth - gapPx);
+      const startPx = ae.dir === 'right' ? gapPx : maxRight;
+      const endPx = ae.dir === 'right' ? maxRight : gapPx;
+      const distancePx = Math.abs(endPx - startPx);
+      const durationMs = Math.min(900, Math.max(520, Math.round(distancePx * 1.35)));
+
+      packet.style.left = `${startPx}px`;
+      // Force layout so the browser applies the start position before animating.
+      // eslint-disable-next-line no-unused-expressions
+      packet.offsetHeight;
+
+      // Decelerating ease for a cleaner instructional "dock" feel.
+      packet.style.transition = `left ${durationMs}ms cubic-bezier(0.16, 0.84, 0.28, 1), opacity 220ms ease`;
       packet.classList.add('dcr-packet-visible');
-      packet.style.left = endPct;
+      packet.style.left = `${endPx}px`;
 
       _dcrAnimTimer = setTimeout(() => {
+        packet.classList.add('dcr-packet-dock');
+        setTimeout(() => packet.classList.remove('dcr-packet-dock'), 280);
+
         if (step.actorEffect?.server) _dcrActorServer.classList.remove(step.actorEffect.server);
         const arrivedRef = _actorRefForId(step.arrivedActor);
         if (arrivedRef && step.arrivedEffect) arrivedRef.classList.add(step.arrivedEffect);
         _dcrCalloutEl.className = step.calloutClass || '';
-      }, 680);
+      }, durationMs + 40);
     }));
   } else {
     // Internal step — pulse server
@@ -2222,7 +2241,31 @@ function renderTerminal(data) {
     });
   }
 
-  addTerminalLine('', `  body: ${JSON.stringify(res.body, null, 0).slice(0, 200)}${JSON.stringify(res.body, null, 0).length > 200 ? '...' : ''}`, statusClass);
+  const rawBody = JSON.stringify(res.body, null, 2);
+  const previewLimit = 1200;
+  const truncated = rawBody.length > previewLimit;
+  const bodyPreview = truncated ? `${rawBody.slice(0, previewLimit)}...` : rawBody;
+  addTerminalLine('', `  body: ${bodyPreview}`, statusClass);
+
+  if (truncated) {
+    const section = terminalOutput.lastElementChild;
+    const toggle = document.createElement('button');
+    toggle.className = 'btn-ghost btn-sm';
+    toggle.style.marginTop = '6px';
+    toggle.textContent = 'Show full response body ▾';
+    let expanded = false;
+    toggle.addEventListener('click', () => {
+      expanded = !expanded;
+      const lines = section.querySelectorAll('.terminal-line');
+      const lastLine = lines[lines.length - 1];
+      const textSpan = lastLine.querySelector(`.terminal-${statusClass}`);
+      if (textSpan) {
+        textSpan.textContent = expanded ? `  body: ${rawBody}` : `  body: ${bodyPreview}`;
+      }
+      toggle.textContent = expanded ? 'Hide full response body ▴' : 'Show full response body ▾';
+    });
+    section.appendChild(toggle);
+  }
 }
 
 function addTerminalSection(label) {
@@ -2316,10 +2359,12 @@ async function fetchNarrative(executionData) {
 }
 
 function renderNarrative(text) {
+  // Normalize markdown artifacts so beat parsing remains stable.
+  const normalized = String(text || '').replace(/\*\*(.*?)\*\*/g, '$1').trim();
   // Parse four-beat structure: lines starting with ✦ BEAT or THE BEAT or WHAT THIS MEANS
   narrativeOutput.innerHTML = '';
 
-  const beats = text.split(/(?=✦\s|THE REQUEST|THE RESPONSE|WHAT THIS MEANS)/);
+  const beats = normalized.split(/(?=✦\s|THE REQUEST|THE RESPONSE|WHAT THIS MEANS)/);
   beats.forEach(beat => {
     if (!beat.trim()) return;
 
@@ -2391,23 +2436,27 @@ async function submitFollowup() {
 
 // ── MCP workspace ──────────────────────────────────────────────────────────────
 
-// Called from the banner delegation listener and the DCR modal connect button.
+// Called from MCP connect/reconnect buttons and the DCR modal connect button.
 // Accepts either a real click Event or a synthetic { currentTarget: el } object.
 async function _mcpConnectHandler(e) {
   const btn = e.currentTarget || $('#btn-mcp-connect');
+  const forceReauth = btn && btn.id === 'btn-mcp-reconnect';
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>Connecting...';
+  btn.innerHTML = `<span class="spinner"></span>${forceReauth ? 'Re-authenticating...' : 'Connecting...'}`;
+  switchTab('terminal');
+  terminalOutput.innerHTML = '';
+  addTerminalSection('── MCP: OAuth 2.0 + Dynamic Client Registration ─────────────');
+  addTerminalLine(new Date().toLocaleTimeString(), forceReauth
+    ? 'Starting MCP re-authentication handshake…'
+    : 'Starting MCP auth handshake…', 'out');
 
   try {
     // GET /auth/mcp — backend runs DCR, returns the Lucid authorization URL
-    const res = await fetch('/auth/mcp');
+    const res = await fetch(`/auth/mcp${forceReauth ? '?force=true' : ''}`);
     const data = await res.json();
 
     if (data.auth_url) {
       // Show DCR step 1+2 in the terminal before the redirect
-      switchTab('terminal');
-      terminalOutput.innerHTML = '';
-      addTerminalSection('── MCP: OAuth 2.0 + Dynamic Client Registration ─────────────');
       addTerminalLine(new Date().toLocaleTimeString(), '① POST /oauth/register — Lucid issued fresh client_id + client_secret', 'ok');
       addTerminalLine('', '   No Developer Portal setup required. Credentials valid for this session only.', 'out');
       addTerminalLine(new Date().toLocaleTimeString(), '② Redirecting browser to Lucid consent screen (PKCE flow)…', 'out');
@@ -2416,15 +2465,21 @@ async function _mcpConnectHandler(e) {
       // Brief pause so the terminal is visible before redirect
       await new Promise(r => setTimeout(r, 900));
       window.location.href = data.auth_url;
-    } else {
-      appendTerminalMessage(`MCP auth failed: ${data.error || 'No auth URL returned — check server logs'}`, 'err');
+    } else if (data.already_authenticated) {
+      addTerminalLine(new Date().toLocaleTimeString(), '✓ MCP is already connected. No new auth required.', 'ok');
+      addTerminalLine('', '  Use "Re-authenticate MCP" only when you intentionally want a new OAuth session.', 'out');
+      await pollAuthStatus();
       btn.disabled = false;
-      btn.textContent = 'Connect MCP →';
+      btn.textContent = forceReauth ? 'Re-authenticate MCP' : 'Connect MCP →';
+    } else {
+      addTerminalLine(new Date().toLocaleTimeString(), `✗ MCP auth failed: ${data.error || 'No auth URL returned — check server logs'}`, 'err');
+      btn.disabled = false;
+      btn.textContent = forceReauth ? 'Re-authenticate MCP' : 'Connect MCP →';
     }
   } catch (err) {
-    appendTerminalMessage(`MCP connect error: ${err.message}`, 'err');
+    addTerminalLine(new Date().toLocaleTimeString(), `✗ MCP connect error: ${err.message}`, 'err');
     btn.disabled = false;
-    btn.textContent = 'Connect MCP →';
+    btn.textContent = forceReauth ? 'Re-authenticate MCP' : 'Connect MCP →';
   }
 }
 
@@ -2445,8 +2500,7 @@ btnMcpSubmit.addEventListener('click', async () => {
     });
 
     const data = await res.json();
-    mcpResponseContent.textContent = JSON.stringify(data, null, 2);
-    mcpResponseViewer.classList.remove('hidden');
+    renderMcpResponse(data);
 
     renderTerminal(data);
     switchTab('narrative');
@@ -2459,6 +2513,43 @@ btnMcpSubmit.addEventListener('click', async () => {
     btnMcpSubmit.textContent = 'Submit';
   }
 });
+
+function renderMcpResponse(data) {
+  const searchResults = (data.body && Array.isArray(data.body.search_results))
+    ? data.body.search_results
+    : [];
+
+  // Structured results panel
+  if (searchResults.length > 0) {
+    const visible = searchResults.slice(0, 25);
+    const rows = visible.map(item => {
+      const title = escapeHtml(item.title || '(untitled)');
+      const id = escapeHtml(item.id || '');
+      const url = escapeHtml(item.url || '#');
+      return `<li><a href="${url}" target="_blank" rel="noopener noreferrer">${title}</a><span class="mcp-result-id">${id}</span></li>`;
+    }).join('');
+    const extra = searchResults.length > visible.length
+      ? `<div class="mcp-results-meta">Showing first ${visible.length} of ${searchResults.length} results. Open raw payload for full output.</div>`
+      : '';
+    mcpStructuredResults.innerHTML = `
+      <h4>Search Results</h4>
+      <div class="mcp-results-meta">MCP search tool returned <strong>${searchResults.length}</strong> matching documents.</div>
+      ${extra}
+      <ul class="mcp-results-list">${rows}</ul>
+    `;
+    mcpStructuredResults.classList.remove('hidden');
+  } else {
+    mcpStructuredResults.classList.add('hidden');
+    mcpStructuredResults.innerHTML = '';
+  }
+
+  // Raw payload (collapsed by default)
+  mcpResponseContent.textContent = JSON.stringify(data, null, 2);
+  mcpResponseContent.classList.add('hidden');
+  mcpRawControls.classList.remove('hidden');
+  btnMcpRawToggle.textContent = 'Show raw MCP payload ▾';
+  mcpResponseViewer.classList.remove('hidden');
+}
 
 // ── Notepad ────────────────────────────────────────────────────────────────────
 
@@ -2515,6 +2606,13 @@ $$('.btn-copy').forEach(btn => {
     });
   });
 });
+
+if (btnMcpRawToggle) {
+  btnMcpRawToggle.addEventListener('click', () => {
+    const hidden = mcpResponseContent.classList.toggle('hidden');
+    btnMcpRawToggle.textContent = hidden ? 'Show raw MCP payload ▾' : 'Hide raw MCP payload ▴';
+  });
+}
 
 // ── Nav buttons ────────────────────────────────────────────────────────────────
 
@@ -2730,18 +2828,12 @@ function init() {
     _mcpConnectHandler({ currentTarget: $('#btn-mcp-connect') });
   });
 
-  // Event delegation on the banner container.
-  // Catches btn-mcp-how, btn-mcp-connect, and btn-mcp-reconnect with one listener.
-  // Delegation means we never need to re-attach listeners as banner state toggles.
-  mcpAuthBanner.addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (!btn) return;
-    if (btn.id === 'btn-mcp-how') {
-      openDcrModal();
-    } else if (btn.id === 'btn-mcp-connect' || btn.id === 'btn-mcp-reconnect') {
-      _mcpConnectHandler({ currentTarget: btn });
-    }
-  });
+  // MCP banner buttons are fixed elements in the DOM; bind directly for reliability.
+  const btnMcpConnect = $('#btn-mcp-connect');
+  const btnMcpReconnect = $('#btn-mcp-reconnect');
+  $$('.btn-mcp-how').forEach((btn) => btn.addEventListener('click', openDcrModal));
+  if (btnMcpConnect) btnMcpConnect.addEventListener('click', (ev) => _mcpConnectHandler(ev));
+  if (btnMcpReconnect) btnMcpReconnect.addEventListener('click', (ev) => _mcpConnectHandler(ev));
 }
 
 document.addEventListener('DOMContentLoaded', init);

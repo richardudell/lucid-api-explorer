@@ -1397,38 +1397,53 @@ textarea.param-input {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  left: 0%;
+  left: 0px;
   opacity: 0;
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 12px;
   font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   font-family: var(--font-mono);
   white-space: nowrap;
   pointer-events: none;
-  background: var(--surface-dark);
+  background: #1b2a3d;
   border: 1px solid var(--border);
-  color: var(--text-secondary);
+  color: #d6e7ff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  z-index: 4;
 }
 .dcr-packet.dcr-packet-visible { opacity: 1; }
 .dcr-packet.dcr-pkt-register {
-  background: rgba(245,176,65,0.12);
-  border-color: rgba(245,176,65,0.5);
-  color: var(--warning-amber);
+  background: #5b3f12;
+  border-color: #f0a500;
+  color: #ffd580;
 }
 .dcr-packet.dcr-pkt-redirect {
-  background: rgba(41,98,255,0.12);
-  border-color: rgba(41,98,255,0.45);
-  color: #6fa3ff;
+  background: #1f3f7a;
+  border-color: #3f7dff;
+  color: #b8d1ff;
 }
 .dcr-packet.dcr-pkt-code {
-  background: rgba(80,200,120,0.10);
-  border-color: rgba(80,200,120,0.4);
-  color: var(--terminal-green);
+  background: #0f4a35;
+  border-color: #00cc88;
+  color: #9cffd3;
 }
 .dcr-packet.dcr-pkt-token {
-  background: rgba(155,89,182,0.12);
-  border-color: rgba(155,89,182,0.45);
-  color: #c39bd3;
+  background: #3f2b55;
+  border-color: #b67cff;
+  color: #e3c9ff;
+}
+
+/* Subtle settle effect when the packet reaches the destination actor */
+.dcr-packet.dcr-packet-dock {
+  animation: dcrPacketDock 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes dcrPacketDock {
+  0%   { transform: translateY(-50%) scale(1); }
+  45%  { transform: translateY(-50%) scale(1.08); }
+  100% { transform: translateY(-50%) scale(1); }
 }
 
 /* Callout */
@@ -1578,6 +1593,7 @@ textarea.param-input {
   gap: 8px;
   flex-shrink: 0;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 /* Connected state — green tint */
@@ -1593,6 +1609,59 @@ textarea.param-input {
 .btn-sm {
   padding: 5px 10px;
   font-size: 11px;
+}
+
+.mcp-structured-results {
+  background: var(--panel-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.mcp-structured-results h4 {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: var(--blue-light);
+  font-family: var(--font-mono);
+}
+
+.mcp-results-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.mcp-results-list {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.mcp-results-list li {
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.mcp-results-list a {
+  color: var(--blue-light);
+  text-decoration: none;
+}
+
+.mcp-results-list a:hover {
+  text-decoration: underline;
+}
+
+.mcp-result-id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.mcp-raw-controls {
+  margin-bottom: 8px;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */

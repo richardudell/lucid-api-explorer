@@ -15,6 +15,7 @@ own redirect URI (http://localhost:8000/mcp/callback) to keep the flows distinct
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
+from urllib.parse import quote as urlquote
 
 # Import as app_state to avoid collision with FastAPI's `state` query param name
 import app.state as app_state
@@ -31,7 +32,7 @@ router = APIRouter(tags=["MCP"])
 # ── Auth initiation ────────────────────────────────────────────────────────────
 
 @router.get("/auth/mcp", summary="Initiate MCP OAuth + Dynamic Client Registration flow")
-async def auth_mcp() -> JSONResponse:
+async def auth_mcp(force: bool = False) -> JSONResponse:
     """
     Begin the MCP auth flow. Returns the Lucid authorization URL the frontend
     should redirect the user to. The DCR step (registering client credentials)
@@ -40,10 +41,12 @@ async def auth_mcp() -> JSONResponse:
     Returns JSON rather than a direct redirect so the frontend can show the URL
     and explain what DCR is before sending the user away.
     """
-    auth_url = await initiate_mcp_auth()
+    auth_url, error = await initiate_mcp_auth(force_reauth=force)
     if not auth_url:
+        if error and error.startswith("MCP already authenticated"):
+            return JSONResponse(content={"already_authenticated": True, "message": error}, status_code=200)
         return JSONResponse(
-            content={"error": "Failed to generate MCP authorization URL. Check server logs."},
+            content={"error": error or "Failed to generate MCP authorization URL. Check server logs."},
             status_code=500,
         )
     return JSONResponse(content={"auth_url": auth_url})
@@ -71,8 +74,10 @@ async def mcp_callback(
     if not code:
         return RedirectResponse(url="/?mcp_auth_error=no_code_returned")
 
-    await complete_mcp_auth(code, state_param)
-    return RedirectResponse(url="/?mcp_auth_success=true")
+    authenticated, callback_error = await complete_mcp_auth(code, state_param)
+    if authenticated:
+        return RedirectResponse(url="/?mcp_auth_success=true")
+    return RedirectResponse(url=f"/?mcp_auth_error={urlquote(callback_error or 'token_exchange_failed')}")
 
 
 # ── Auth status ────────────────────────────────────────────────────────────────

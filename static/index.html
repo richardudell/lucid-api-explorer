@@ -606,7 +606,7 @@
               <span>Click <em>Connect MCP</em> to register a client and authorize via OAuth + DCR.</span>
             </div>
             <div class="auth-banner-actions">
-              <button id="btn-mcp-how" class="btn-ghost btn-sm">How does DCR work?</button>
+              <button id="btn-mcp-how" class="btn-ghost btn-sm btn-mcp-how">How does DCR work?</button>
               <button id="btn-mcp-connect" class="btn-primary">Connect MCP →</button>
             </div>
           </div>
@@ -618,7 +618,10 @@
               <strong class="mcp-connected-label">MCP connected</strong>
               <span>OAuth 2.0 + Dynamic Client Registration — access token active in server memory.</span>
             </div>
-            <button id="btn-mcp-reconnect" class="btn-ghost btn-sm">Reconnect</button>
+            <div class="auth-banner-actions">
+              <button id="btn-mcp-how-connected" class="btn-ghost btn-sm btn-mcp-how">How does DCR work?</button>
+              <button id="btn-mcp-reconnect" class="btn-ghost btn-sm">Re-authenticate MCP</button>
+            </div>
           </div>
 
         </div>
@@ -643,6 +646,10 @@
         <div id="mcp-response-viewer" class="hidden">
           <div class="response-header">
             <span class="response-label">MCP RESPONSE</span>
+          </div>
+          <div id="mcp-structured-results" class="mcp-structured-results hidden"></div>
+          <div id="mcp-raw-controls" class="mcp-raw-controls hidden">
+            <button id="btn-mcp-raw-toggle" class="btn-ghost btn-sm">Show raw MCP payload ▾</button>
           </div>
           <pre id="mcp-response-content" class="json-viewer"></pre>
         </div>

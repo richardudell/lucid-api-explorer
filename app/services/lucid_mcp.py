@@ -35,11 +35,11 @@ We use the actual Pydantic model types, not plain dicts.
 """
 
 import asyncio
+import json
 import time
 from datetime import datetime
 from typing import Any
 
-import httpx
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamablehttp_client
@@ -110,6 +110,7 @@ _callback_state: str | None = None
 
 # Track the background auth task so we can check its status
 _auth_task: asyncio.Task | None = None
+_pending_auth_url: str | None = None
 
 
 # ── Auth initiation ────────────────────────────────────────────────────────────
@@ -124,7 +125,7 @@ def _make_client_metadata() -> OAuthClientMetadata:
     )
 
 
-async def initiate_mcp_auth() -> str:
+async def initiate_mcp_auth(force_reauth: bool = False) -> tuple[str | None, str | None]:
     """
     Begin the MCP OAuth + DCR flow. Returns the authorization URL the user
     must visit to grant consent.
@@ -141,13 +142,34 @@ async def initiate_mcp_auth() -> str:
        our InMemoryTokenStorage to persist the result.
 
     Called by GET /auth/mcp.
+
+    Returns:
+      (auth_url, error_message)
     """
-    global _oauth_provider, _callback_event, _callback_code, _callback_state, _auth_task
+    global _oauth_provider, _callback_event, _callback_code, _callback_state, _auth_task, _pending_auth_url
+
+    # If a flow is already in progress, return the same URL instead of starting
+    # a second flow that would invalidate the first flow's state.
+    if _auth_task is not None and not _auth_task.done():
+        if _pending_auth_url:
+            return (_pending_auth_url, None)
+        return (None, "MCP auth is already starting. Please wait a moment and try again.")
+
+    if state.is_mcp_authenticated() and not force_reauth:
+        return (None, "MCP already authenticated. No new connection is required.")
+
+    if force_reauth:
+        global _mcp_token, _mcp_client_info
+        _oauth_provider = None
+        _mcp_token = None
+        _mcp_client_info = None
+        state.clear_mcp_auth()
 
     # Reset callback state for a fresh flow
     _callback_event = asyncio.Event()
     _callback_code = None
     _callback_state = None
+    _pending_auth_url = None
 
     storage = InMemoryTokenStorage()
     auth_url_holder: list[str] = []
@@ -159,6 +181,8 @@ async def initiate_mcp_auth() -> str:
         Instead of opening a browser (which we can't do server-side), we
         capture the URL and return it to the frontend.
         """
+        global _pending_auth_url
+        _pending_auth_url = url
         auth_url_holder.append(url)
 
     async def callback_handler() -> tuple[str, str | None]:
@@ -184,25 +208,24 @@ async def initiate_mcp_auth() -> str:
 
     async def run_flow() -> None:
         """
-        Trigger the OAuth flow by making a request to the MCP server.
-        The OAuthClientProvider intercepts the 401 and starts DCR + OAuth.
-        We use a short timeout on the HTTP call since we only need it to
-        receive the 401 — the real work happens via the event system.
+        Trigger the OAuth flow by opening a real MCP stream and attempting
+        session initialization. This reliably elicits the MCP server's auth
+        challenge (401 + WWW-Authenticate) so OAuthClientProvider can perform
+        DCR + OAuth and invoke redirect_handler.
         """
         try:
-            async with httpx.AsyncClient(auth=_oauth_provider) as client:
-                # HEAD request to the MCP URL — we only need the 401 to trigger the flow.
-                # The provider's async_auth_flow generator handles the 401 response,
-                # runs DCR, builds the auth URL, and calls redirect_handler.
-                # Then it parks at callback_handler waiting for the code.
-                # Allow long timeout since callback_handler waits for user interaction.
-                await client.get(LUCID_MCP_URL, timeout=600.0)
+            async with streamablehttp_client(
+                url=LUCID_MCP_URL,
+                auth=_oauth_provider,
+                timeout=600.0,  # allow user interaction window for OAuth redirect
+            ) as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    # This call triggers the first authenticated MCP exchange.
+                    # If unauthorized, OAuthClientProvider starts DCR + OAuth.
+                    await session.initialize()
         except Exception as exc:
-            # Most errors here are expected (the MCP endpoint may return non-200
-            # after auth succeeds, or the task is cancelled). We only care about
-            # capturing the auth URL and the token — both happen via storage callbacks.
-            if "auth" in str(exc).lower() or "dcr" in str(exc).lower():
-                auth_error_holder.append(str(exc))
+            # Capture all flow errors so /auth/mcp can return a concrete reason.
+            auth_error_holder.append(str(exc))
 
     # Launch the flow as a background task. It will suspend inside callback_handler
     # until the OAuth callback arrives. We must not await it here — we return first.
@@ -219,16 +242,17 @@ async def initiate_mcp_auth() -> str:
         if _auth_task.done():
             exc = _auth_task.exception()
             if exc:
-                return ""
+                return (None, str(exc))
             break
 
     if not auth_url_holder:
-        return ""
+        err = auth_error_holder[0] if auth_error_holder else "Failed to generate MCP authorization URL."
+        return (None, err)
 
-    return auth_url_holder[0]
+    return (auth_url_holder[0], None)
 
 
-async def complete_mcp_auth(code: str, state_param: str | None) -> None:
+async def complete_mcp_auth(code: str, state_param: str | None) -> tuple[bool, str | None]:
     """
     Called by /mcp/callback after Lucid redirects back with the auth code.
     Signals the callback_handler() that is blocking inside the OAuth flow.
@@ -236,8 +260,11 @@ async def complete_mcp_auth(code: str, state_param: str | None) -> None:
     After this returns, the background task resumes, exchanges the code for
     a token, and calls InMemoryTokenStorage.set_tokens() to persist it.
     We wait briefly for the token exchange to complete before returning.
+
+    Returns:
+      (authenticated, error_message)
     """
-    global _callback_code, _callback_state
+    global _callback_code, _callback_state, _pending_auth_url
     _callback_code = code
     _callback_state = state_param
     if _callback_event is not None:
@@ -250,8 +277,18 @@ async def complete_mcp_auth(code: str, state_param: str | None) -> None:
             await anyio.sleep(0.1)  # small grace period for the exchange to start
             # Wait up to 15s for the token exchange to complete
             await asyncio.wait_for(asyncio.shield(_auth_task), timeout=15.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
-            pass  # Token may still have been stored — check state
+        except asyncio.TimeoutError:
+            return (state.is_mcp_authenticated(), "Timed out waiting for MCP token exchange.")
+        except asyncio.CancelledError:
+            return (state.is_mcp_authenticated(), "MCP auth task was cancelled before completion.")
+        except Exception as exc:
+            return (state.is_mcp_authenticated(), f"MCP auth task failed: {exc}")
+
+    if state.is_mcp_authenticated():
+        _pending_auth_url = None
+        return (True, None)
+    _pending_auth_url = None
+    return (False, "MCP callback completed but no access token was stored.")
 
 
 # ── Prompt execution ───────────────────────────────────────────────────────────
@@ -319,10 +356,11 @@ async def execute_mcp_prompt(prompt: str) -> dict:
                     result = await session.call_tool(tool_name, tool_args)
                     call_latency = int((time.monotonic() - call_start) * 1000)
 
+                    normalized_content = [_normalize_mcp_content(c.model_dump()) for c in result.content]
                     tool_calls_log.append({
                         "tool": tool_name,
                         "arguments": tool_args,
-                        "result": [c.model_dump() for c in result.content],
+                        "result": normalized_content,
                         "latency_ms": call_latency,
                         "is_error": result.isError,
                     })
@@ -342,7 +380,11 @@ async def execute_mcp_prompt(prompt: str) -> dict:
 
     result = {
         "status_code": 200,
-        "body": {"tool_calls": tool_calls_log, "prompt": prompt},
+        "body": {
+            "tool_calls": tool_calls_log,
+            "prompt": prompt,
+            "search_results": _extract_search_results(tool_calls_log),
+        },
         "request": request_log,
         "response_headers": {},
         "auth_method": "OAuth 2.0 + Dynamic Client Registration (MCP)",
@@ -468,3 +510,40 @@ def _error_result(message: str, status_code: int = 400) -> dict:
         "curl_command": _mcp_curl_note(),
         "python_snippet": _mcp_python_note(),
     }
+
+
+def _normalize_mcp_content(content: dict) -> dict:
+    """
+    Normalize MCP content entries.
+    """
+    normalized = dict(content)
+    text = normalized.get("text")
+    if normalized.get("type") == "text" and isinstance(text, str):
+        stripped = text.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                normalized["parsed_json"] = json.loads(stripped)
+            except json.JSONDecodeError:
+                pass
+    return normalized
+
+
+def _extract_search_results(tool_calls: list[dict]) -> list[dict]:
+    """
+    Best-effort extraction of search results from MCP tool output.
+    """
+    results: list[dict] = []
+    for call in tool_calls:
+        if call.get("tool") != "search":
+            continue
+        for chunk in call.get("result", []):
+            parsed = chunk.get("parsed_json")
+            if isinstance(parsed, dict) and isinstance(parsed.get("results"), list):
+                for item in parsed["results"]:
+                    if isinstance(item, dict):
+                        results.append({
+                            "id": item.get("id"),
+                            "title": item.get("title"),
+                            "url": item.get("url"),
+                        })
+    return results
