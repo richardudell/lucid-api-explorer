@@ -783,6 +783,7 @@
       <button class="panel-tab active" data-tab="terminal">Terminal</button>
       <button class="panel-tab" data-tab="code">Code</button>
       <button class="panel-tab" data-tab="narrative">Claude Narrative</button>
+      <button class="panel-tab sim-tab-locked" data-tab="simulate" id="tab-simulate-btn" title="Complete OAuth to unlock">🎮 Simulate <span class="sim-lock-icon" id="sim-lock-icon">🔒</span></button>
     </div>
 
     <div id="panel-content">
@@ -829,6 +830,87 @@
           <button id="btn-followup" class="btn-primary">Ask</button>
         </div>
       </div>
+
+      <!-- Simulate tab -->
+      <div id="tab-simulate" class="tab-pane">
+
+        <!-- OVERLAYS: position absolute, cover full pane, z-index 10 -->
+
+        <div id="sim-overlay-locked" class="sim-overlay sim-overlay-visible">
+          <div class="sim-overlay-icon">🔒</div>
+          <div class="sim-overlay-title">Complete OAuth first</div>
+          <div class="sim-overlay-sub">Run the REST API auth flow to unlock the simulator.</div>
+        </div>
+
+        <div id="sim-overlay-pwned" class="sim-overlay sim-overlay-pwned">
+          <div class="sim-overlay-skull">💀</div>
+          <div class="sim-overlay-pwned-title">YOU FORGED THE TOKEN</div>
+          <div id="sim-pwned-body" class="sim-overlay-pwned-body"></div>
+          <div class="sim-overlay-pwned-lesson" id="sim-pwned-lesson"></div>
+          <button class="sim-btn-replay" id="sim-btn-replay-pwned">↺ Play again</button>
+        </div>
+
+        <div id="sim-overlay-defended" class="sim-overlay sim-overlay-defended">
+          <div class="sim-overlay-shield">🛡</div>
+          <div class="sim-overlay-defended-title">All attacks blocked</div>
+          <div id="sim-defended-body" class="sim-overlay-defended-body"></div>
+          <button class="sim-btn-replay" id="sim-btn-replay-defended">↺ Play again</button>
+        </div>
+
+        <div id="sim-overlay-missed" class="sim-overlay sim-overlay-missed">
+          <div class="sim-overlay-icon">🎯</div>
+          <div class="sim-overlay-missed-title">Flow completed — nothing intercepted</div>
+          <div class="sim-overlay-missed-body">All packets landed safely this time. In insecure mode, a real attacker <em>could</em> have stolen the token on wave 4 — try clicking the glowing packets next run.</div>
+          <button class="sim-btn-replay" id="sim-btn-replay-missed">↺ Try again</button>
+        </div>
+
+        <div id="sim-overlay-flash" class="sim-overlay sim-overlay-flash">
+          <div class="sim-flash-icon" id="sim-flash-icon"></div>
+          <div class="sim-flash-title" id="sim-flash-title"></div>
+          <div class="sim-flash-body" id="sim-flash-body"></div>
+          <button class="sim-flash-dismiss" id="sim-flash-dismiss">Got it →</button>
+        </div>
+
+        <!-- GAME CONTENT: HUD + swimlane + result area -->
+
+        <div id="sim-hud">
+          <div class="sim-hud-wave" id="sim-hud-wave">Wave 1 / 4</div>
+          <button class="sim-pkce-toggle" id="sim-pkce-toggle">Without PKCE</button>
+          <div class="sim-mode-badge sim-mode-insecure" id="sim-mode-badge">INSECURE</div>
+          <button class="sim-hud-restart" id="sim-hud-restart" title="Restart game">↺ Restart</button>
+        </div>
+
+        <div id="sim-swimlane">
+          <div class="sim-actor" id="sim-actor-browser">
+            <div class="sim-actor-icon">🌐</div>
+            <div class="sim-actor-label">Browser</div>
+          </div>
+          <div class="sim-track" id="sim-track-1">
+            <div class="sim-track-line"></div>
+            <div class="sim-packet" id="sim-packet-1"></div>
+          </div>
+          <div class="sim-actor" id="sim-actor-server">
+            <div class="sim-actor-icon">⚙</div>
+            <div class="sim-actor-label">Your Server</div>
+            <div class="sim-actor-sub">this app</div>
+          </div>
+          <div class="sim-track" id="sim-track-2">
+            <div class="sim-track-line"></div>
+            <div class="sim-packet" id="sim-packet-2"></div>
+          </div>
+          <div class="sim-actor" id="sim-actor-lucid">
+            <div class="sim-actor-icon">◈</div>
+            <div class="sim-actor-label">Lucid</div>
+          </div>
+        </div>
+
+        <div class="sim-wave-desc" id="sim-wave-desc">Click a packet to intercept it.</div>
+
+        <div class="sim-result-area">
+          <div id="sim-result-content"></div>
+        </div>
+
+      </div><!-- /tab-simulate -->
 
     </div>
   </div><!-- /bottom-panel -->

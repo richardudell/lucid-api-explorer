@@ -650,6 +650,7 @@ const panelTabs     = $$('.panel-tab');
 const tabTerminal   = $('#tab-terminal');
 const tabCode       = $('#tab-code');
 const tabNarrative  = $('#tab-narrative');
+const tabSimulate   = $('#tab-simulate');
 const terminalOutput = $('#terminal-output');
 const curlOutput    = $('#curl-output');
 const pythonOutput  = $('#python-output');
@@ -1442,6 +1443,7 @@ function _applyFlowData(data) {
     btnOpenLucid.textContent = 'Close';
     btnOpenLucid.disabled = false;
     _modalButtonMode = 'close';
+    simUnlock(); // unlock Simulate tab — idempotent
 
   } else if (data.steps && data.steps.some(s => s.status === 'error')) {
     const errorStep = data.steps.find(s => s.status === 'error');
@@ -2950,7 +2952,8 @@ panelTabs.forEach(tab => {
 
 function switchTab(name) {
   panelTabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-  [tabTerminal, tabCode, tabNarrative].forEach(pane => {
+  [tabTerminal, tabCode, tabNarrative, tabSimulate].forEach(pane => {
+    if (!pane) return;
     pane.classList.toggle('active', pane.id === `tab-${name}`);
   });
 }
@@ -3572,6 +3575,588 @@ function init() {
   $$('.btn-mcp-how').forEach((btn) => btn.addEventListener('click', openDcrModal));
   if (btnMcpConnect) btnMcpConnect.addEventListener('click', (ev) => _mcpConnectHandler(ev));
   if (btnMcpReconnect) btnMcpReconnect.addEventListener('click', (ev) => _mcpConnectHandler(ev));
+  initSimulate();
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ── OAuth Packet Intercept — Simulation Game ────────────────────────────────
+
+// ── Step configs — 6-step flat array matching the real OAuth Authorization Code Flow ──
+// Source of truth: FLOW_STEP_CONFIG (line ~986) + app/routes/auth.py
+// type:'internal' = server-only pulse, no packet
+// type:'packet'   = clickable/interceptable packet flying across a track
+const SIM_STEPS = [
+
+  // ── Step 1: Server generates CSRF state token (internal) ─────────────────────
+  {
+    type: 'internal', actor: 'server', durationMs: 1200,
+    insecureDesc: 'Step 1: Server generates CSRF state token — internal only, nothing crosses the wire.',
+    pkceDesc:     'Step 1: Server generates state token + code_verifier + code_challenge — all internal.',
+    insecureResult: 'A random state token is created and stored server-side. Lucid will echo it back on the callback — a mismatch means CSRF. In insecure mode (no PKCE), this is still present but the code is your real vulnerability.',
+    pkceResult:     'State token created. Additionally, code_verifier is generated (random secret) and code_challenge = SHA-256(code_verifier) is computed. The verifier stays server-side — never transmitted. The challenge goes out in the redirect.',
+  },
+
+  // ── Step 2: Server 302-redirects browser to Lucid (Track 1, Server → Browser) ─
+  {
+    type: 'packet', track: 1, dir: 'left',
+    packetClass: 'sim-pkt-redirect', label: '302 \u2192 Lucid',
+    flightMs: 2800,
+    desc: 'Server redirects browser to Lucid\u2019s consent screen. Click the packet to intercept.',
+    actorFrom: 'server', actorTo: 'browser',
+    insecure: {
+      canTriggerPwned: false,
+      flashIcon: '\u26a1', flashTitle: 'Auth URL intercepted!',
+      flashBody: 'No code_challenge. You know the redirect URI — you can forge the callback.',
+      resultLabel: 'INTERCEPTED', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Attack vector: no PKCE challenge in auth URL',
+      resultPayload:
+`302 Redirect \u2192 Lucid:
+GET /authorize
+  ?client_id=abc123
+  &redirect_uri=https://myapp.example.com/callback
+  &response_type=code
+  &state=x7kQpR9s
+  \u2190 no code_challenge
+
+No PKCE. Any code Lucid returns can be
+exchanged by anyone. Intercept it next.`,
+    },
+    pkce: {
+      flashIcon: '\ud83d\udee1', flashTitle: 'Auth URL intercepted \u2014 PKCE active',
+      flashBody: 'You see code_challenge=E9Melhoa2\u2026 but the verifier was never transmitted. The code is already bound.',
+      resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'PKCE: code_challenge pre-binds the code to its originator',
+      resultPayload:
+`302 Redirect \u2192 Lucid:
+GET /authorize
+  ?client_id=abc123
+  &redirect_uri=https://myapp.example.com/callback
+  &response_type=code
+  &state=x7kQpR9s
+  &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
+  &code_challenge_method=S256
+
+SHA-256(code_verifier) \u2192 this challenge.
+Verifier stays server-side. Code is pre-bound.`,
+    },
+  },
+
+  // ── Step 3: Lucid delivers auth code to /callback (Track 2, Lucid → Server) ──
+  {
+    type: 'packet', track: 2, dir: 'left',
+    packetClass: 'sim-pkt-code', label: 'code=\u2026',
+    flightMs: 2800,
+    desc: 'Lucid delivers auth code to /callback on Your Server. Click to intercept.',
+    actorFrom: 'lucid', actorTo: 'server',
+    insecure: {
+      canTriggerPwned: false,
+      flashIcon: '\ud83d\udca5', flashTitle: 'Auth code stolen!',
+      flashBody: 'No code_verifier required. POST this code to /token — Lucid will hand you a token.',
+      resultLabel: 'INTERCEPTED', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Attack vector: unrestricted code exchange',
+      resultPayload:
+`Lucid \u2192 /callback:
+  code=SplxlOBeZQQYbYS6WxSbIA
+  state=x7kQpR9s  \u2190 echoed back
+
+POST /token (your attack):
+  code=SplxlOBeZQQYbYS6WxSbIA
+  client_id=abc123
+  \u2190 no code_verifier needed
+
+Lucid issues token. You win this step.`,
+    },
+    pkce: {
+      flashIcon: '\ud83d\udee1', flashTitle: 'Code intercepted \u2014 exchange will fail',
+      flashBody: 'You have the code. But /token demands code_verifier. Without the server\u2019s secret: invalid_grant.',
+      resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'PKCE: code_verifier required at token exchange',
+      resultPayload:
+`Lucid \u2192 /callback:
+  code=SplxlOBeZQQYbYS6WxSbIA
+  state=x7kQpR9s
+
+POST /token (your attack):
+  code=SplxlOBeZQQYbYS6WxSbIA
+  \u2190 no code_verifier
+
+Lucid: { "error": "invalid_grant",
+  "error_description": "code_verifier required" }
+
+Attack stopped. Code is worthless alone.`,
+    },
+  },
+
+  // ── Step 4: Server validates state param (internal CSRF check) ───────────────
+  {
+    type: 'internal', actor: 'server', durationMs: 1200,
+    insecureDesc: 'Step 4: Server validates state token — internal CSRF check, nothing crosses the wire.',
+    pkceDesc:     'Step 4: State/CSRF validated — server confirms callback came from same session.',
+    insecureResult: 'State param echoed by Lucid matches what was stored. CSRF blocked here — but in insecure mode the code was already stolen in step 3. Token exchange is next.',
+    pkceResult:     'State matches. PKCE verification happens at /token — a second, cryptographic layer of protection orthogonal to the CSRF state check.',
+  },
+
+  // ── Step 5: Server POSTs to /token (Track 2, Server → Lucid) ─────────────────
+  {
+    type: 'packet', track: 2, dir: 'right',
+    packetClass: 'sim-pkt-token-req', label: 'POST /token',
+    flightMs: 2800,
+    desc: 'Your Server exchanges code for token (server-to-server). Click to intercept.',
+    actorFrom: 'server', actorTo: 'lucid',
+    insecure: {
+      canTriggerPwned: false,
+      flashIcon: '\u26a0', flashTitle: 'Token request intercepted',
+      flashBody: 'client_secret is masked — lives server-side only. You see the structure, not the value.',
+      resultLabel: 'PARTIAL', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Partial exposure \u2014 client_secret stays server-side',
+      resultPayload:
+`POST /token (server \u2192 Lucid):
+  grant_type=authorization_code
+  code=SplxlOBeZQQYbYS6WxSbIA
+  client_id=abc123
+  client_secret=\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 \u2190 server-side only
+  redirect_uri=https://myapp.example.com/callback
+
+Auth Code flow was designed to keep the
+secret out of the browser. Token incoming.`,
+    },
+    pkce: {
+      flashIcon: '\ud83d\udee1', flashTitle: 'Token request intercepted',
+      flashBody: 'code_verifier in the POST proves this server originated the flow. You can\u2019t forge it.',
+      resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'PKCE: code_verifier cryptographically proves server identity',
+      resultPayload:
+`POST /token (server \u2192 Lucid):
+  grant_type=authorization_code
+  code=SplxlOBeZQQYbYS6WxSbIA
+  code_verifier=dBjftJeZ4gRSUqXfDiZBMCKl5NnG3tPr\u2026
+  client_id=abc123
+
+Lucid: SHA-256(code_verifier) == code_challenge?
+  Yes \u2192 token issued to this server only.
+  No  \u2192 invalid_grant.
+
+Only the server that generated step 1 has this.`,
+    },
+  },
+
+  // ── Step 6: Lucid returns access_token (Track 2, Lucid → Server) ─────────────
+  {
+    type: 'packet', track: 2, dir: 'left',
+    packetClass: 'sim-pkt-token', label: 'access_token',
+    flightMs: 2800,
+    desc: 'Token returned to Your Server only. Click to see what you could steal.',
+    actorFrom: 'lucid', actorTo: 'server',
+    insecure: {
+      canTriggerPwned: true,
+      flashIcon: '\ud83d\udc80', flashTitle: 'TOKEN STOLEN',
+      flashBody: 'The token is the prize. Full API access granted to the attacker.',
+      resultLabel: 'STOLEN', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Token exposure \u2014 attack complete',
+      resultPayload:
+`access_token: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9\u2026
+token_type: Bearer
+expires_in: 3600
+scope: account.user account.document
+
+Full REST API access.
+GET /users  Authorization: Bearer eyJ\u2026`,
+    },
+    pkce: {
+      canTriggerDefended: true,
+      flashIcon: '\ud83d\udee1', flashTitle: 'Token stays server-side',
+      flashBody: 'Issued only to the server that proved code_verifier. Browser never sees it.',
+      resultLabel: 'SECURE', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'Defense complete \u2014 token server-only',
+      resultPayload:
+`Token returned to Your Server only.
+Browser: never transmitted this token.
+Attacker: blocked at step 3 by PKCE.
+
+PKCE made the code cryptographically bound
+to one party. All attack vectors neutralized.`,
+    },
+  },
+];
+
+const SIM_PWNED = {
+  token:  'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9\u2026',
+  scopes: 'account.user, account.document',
+  lessons: [
+    'Without PKCE, the authorization code can be exchanged by anyone who intercepts it.',
+    '\u201cProof Key for Code Exchange\u201d binds the code to a verifier only the server knows.',
+    'Intercepted codes become worthless \u2014 the exchange fails without the verifier.',
+    'Toggle \u201cWith PKCE\u201d and replay to see every attack blocked.',
+  ],
+};
+
+const SIM_DEFENDED = {
+  defenses: [
+    { label: 'Step 1', text: 'code_verifier + code_challenge generated server-side \u2014 verifier never transmitted' },
+    { label: 'Wave 1', text: 'code_challenge in 302 redirect \u2014 code is pre-bound before it exists' },
+    { label: 'Wave 2', text: 'code_verifier required at /token \u2014 Lucid rejects exchange without proof of key' },
+    { label: 'Step 4', text: 'State/CSRF validated \u2014 server-internal, not interceptable over the wire' },
+    { label: 'Wave 3', text: 'code_verifier proves server identity \u2014 only the originator can complete exchange' },
+    { label: 'Wave 4', text: 'Token issued to Your Server only \u2014 browser never sees it, nothing to steal' },
+  ],
+  lesson: 'PKCE converts the authorization code into a credential cryptographically bound to its originator. Even a perfect man-in-the-middle attack fails at wave 2.',
+};
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let simPkceOn           = false;
+let simWaveIndex        = 0;
+let simFlightTimer      = null;
+let simLocked           = true;
+let simRunning          = false;
+let simEverIntercepted  = false; // true only if user clicked at least one packet this run
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function simEsc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function simSetOverlay(name) {
+  // name: 'locked' | 'pwned' | 'defended' | 'missed' | 'flash' | 'none'
+  const map = { locked: 'sim-overlay-locked', pwned: 'sim-overlay-pwned',
+                defended: 'sim-overlay-defended', missed: 'sim-overlay-missed',
+                flash: 'sim-overlay-flash' };
+  Object.entries(map).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('sim-overlay-visible', key === name);
+  });
+}
+
+function simActorEl(name) { return document.getElementById(`sim-actor-${name}`); }
+
+function simClearActors() {
+  ['browser','server','lucid'].forEach(n => {
+    const el = simActorEl(n);
+    if (el) el.classList.remove('sim-actor-pulse', 'sim-actor-arrive');
+  });
+}
+
+function simCancelFlight() {
+  if (simFlightTimer) { clearTimeout(simFlightTimer); simFlightTimer = null; }
+  ['sim-packet-1', 'sim-packet-2'].forEach(id => {
+    const p = document.getElementById(id);
+    if (!p) return;
+    p.style.transition  = 'none';
+    p.style.left        = '0%';
+    p.classList.remove('sim-packet-visible', 'sim-packet-clickable');
+    p.style.pointerEvents = 'none';
+    p.replaceWith(p.cloneNode(true)); // remove all event listeners
+  });
+}
+
+// ── Unlock ─────────────────────────────────────────────────────────────────────
+function simUnlock() {
+  if (!simLocked) return;
+  simLocked = false;
+
+  const btn = document.getElementById('tab-simulate-btn');
+  if (btn) btn.classList.remove('sim-tab-locked');
+  const lock = document.getElementById('sim-lock-icon');
+  if (lock) lock.remove();
+
+  simSetOverlay('none');
+  simShowStartScreen();
+}
+
+// ── Start screen ───────────────────────────────────────────────────────────────
+function simShowStartScreen() {
+  const el = document.getElementById('sim-result-content');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="sim-start-prompt">
+      <div class="sim-start-title">OAuth Packet Intercept</div>
+      <div class="sim-start-sub">You are the attacker. Click packets in flight to intercept them.<br>
+        Toggle <strong>With&nbsp;PKCE</strong> to see how each attack is blocked.</div>
+      <button class="sim-btn-start" id="sim-btn-start">Start attack \u2192</button>
+    </div>`;
+  const startBtn = document.getElementById('sim-btn-start');
+  if (startBtn) startBtn.addEventListener('click', simStartRun);
+}
+
+// ── PKCE toggle ────────────────────────────────────────────────────────────────
+function simTogglePkce() {
+  simPkceOn = !simPkceOn;
+  const toggleBtn = document.getElementById('sim-pkce-toggle');
+  const badge     = document.getElementById('sim-mode-badge');
+  if (toggleBtn) {
+    toggleBtn.textContent = simPkceOn ? 'With PKCE' : 'Without PKCE';
+    toggleBtn.classList.toggle('sim-pkce-on', simPkceOn);
+  }
+  if (badge) {
+    badge.textContent = simPkceOn ? 'SECURED' : 'INSECURE';
+    badge.className   = 'sim-mode-badge ' + (simPkceOn ? 'sim-mode-secure' : 'sim-mode-insecure');
+  }
+  if (simRunning) {
+    simCancelFlight();
+    simClearActors();
+    simStartRun();
+  }
+}
+
+// ── Start run ──────────────────────────────────────────────────────────────────
+function simStartRun() {
+  simWaveIndex       = 0;
+  simRunning         = true;
+  simEverIntercepted = false;
+  simSetOverlay('none');
+  simClearActors();
+  simRunStep(0);
+}
+
+// ── Step orchestrator (handles both internal pauses and packet waves) ──────────
+function simRunStep(index) {
+  if (index >= SIM_STEPS.length) {
+    // End screens are only earned by intercepting — if user let everything land, show neutral result
+    if (simPkceOn) {
+      simEndDefended(); // In PKCE mode the defenses held regardless — show the checklist
+    } else if (simEverIntercepted) {
+      simEndPwned();    // User actively intercepted in insecure mode — they forged the token
+    } else {
+      simEndMissed();   // User let every packet land — the flow completed safely this time
+    }
+    return;
+  }
+
+  const step = SIM_STEPS[index];
+  simWaveIndex = index;
+
+  const hudEl  = document.getElementById('sim-hud-wave');
+  const descEl = document.getElementById('sim-wave-desc');
+  const resEl  = document.getElementById('sim-result-content');
+
+  if (step.type === 'internal') {
+    // ── Internal server-only pause ────────────────────────────────────────────
+    if (hudEl)  hudEl.textContent  = `Step ${index + 1} / ${SIM_STEPS.length}`;
+    if (descEl) descEl.textContent = simPkceOn ? step.pkceDesc : step.insecureDesc;
+    if (resEl)  resEl.innerHTML    = '';
+    simRunInternal(step, () => simRunStep(index + 1));
+  } else {
+    // ── Packet wave ───────────────────────────────────────────────────────────
+    // Count only packet steps for "Wave X / 4" display
+    const waveNum     = SIM_STEPS.slice(0, index + 1).filter(s => s.type === 'packet').length;
+    const totalWaves  = SIM_STEPS.filter(s => s.type === 'packet').length;
+    if (hudEl)  hudEl.textContent  = `Wave ${waveNum} / ${totalWaves}`;
+    if (descEl) descEl.textContent = step.desc;
+    if (resEl)  resEl.innerHTML    = '';
+
+    simClearActors();
+    const fromEl = simActorEl(step.actorFrom);
+    if (fromEl) fromEl.classList.add('sim-actor-arrive');
+    setTimeout(() => { if (fromEl) fromEl.classList.remove('sim-actor-arrive'); }, 400);
+
+    simLaunchPacket(step, index);
+  }
+}
+
+// ── Internal step handler (server pulses, auto-advances after durationMs) ──────
+function simRunInternal(step, onDone) {
+  simClearActors();
+  const actorEl = simActorEl(step.actor);
+  if (actorEl) actorEl.classList.add('sim-actor-pulse');
+
+  const resEl  = document.getElementById('sim-result-content');
+  const result = simPkceOn ? step.pkceResult : step.insecureResult;
+  if (resEl) resEl.innerHTML = `
+    <div class="sim-result-internal">
+      <div class="sim-result-label sim-result-label-internal">SERVER INTERNAL</div>
+      <div class="sim-result-text">${simEsc(result)}</div>
+    </div>`;
+
+  simFlightTimer = setTimeout(() => {
+    simFlightTimer = null;
+    if (actorEl) actorEl.classList.remove('sim-actor-pulse');
+    onDone();
+  }, step.durationMs);
+}
+
+// ── Packet launch ──────────────────────────────────────────────────────────────
+function simLaunchPacket(wave, index) {
+  // Re-fetch packet element (simCancelFlight cloneNode replaces the DOM element)
+  const pktEl   = document.getElementById(`sim-packet-${wave.track}`);
+  const trackEl = document.getElementById(`sim-track-${wave.track}`);
+  if (!pktEl || !trackEl) return;
+
+  pktEl.textContent     = wave.label;
+  pktEl.className       = `sim-packet ${wave.packetClass}`;
+  pktEl.style.left      = wave.dir === 'right' ? '0%' : 'calc(100% - 82px)';
+  pktEl.style.transition = 'none';
+  pktEl.style.pointerEvents = 'auto';
+
+  // In insecure mode, make packet glow and clickable
+  if (!simPkceOn) pktEl.classList.add('sim-packet-clickable');
+
+  const endPos = wave.dir === 'right' ? 'calc(100% - 82px)' : '0%';
+
+  const onIntercept = () => {
+    if (!pktEl.classList.contains('sim-packet-visible')) return; // guard double-click
+    clearTimeout(simFlightTimer);
+    simFlightTimer = null;
+    pktEl.removeEventListener('click', onIntercept);
+    pktEl.style.transition    = 'none';
+    pktEl.style.pointerEvents = 'none';
+    pktEl.classList.remove('sim-packet-clickable');
+    // Freeze at current visual position
+    const trackRect = trackEl.getBoundingClientRect();
+    const pktRect   = pktEl.getBoundingClientRect();
+    pktEl.style.left = `${pktRect.left - trackRect.left}px`;
+    simHandleIntercept(wave, pktEl, index);
+  };
+  pktEl.addEventListener('click', onIntercept);
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    pktEl.classList.add('sim-packet-visible');
+    pktEl.style.transition = `left ${wave.flightMs}ms linear`;
+    pktEl.style.left = endPos;
+    simFlightTimer = setTimeout(() => {
+      pktEl.removeEventListener('click', onIntercept);
+      simPacketLanded(wave, pktEl, index);
+    }, wave.flightMs + 60);
+  }));
+}
+
+// ── Intercept handler ──────────────────────────────────────────────────────────
+function simHandleIntercept(wave, pktEl, index) {
+  const script = simPkceOn ? wave.pkce : wave.insecure;
+  if (!script) return;
+
+  simEverIntercepted = true; // user clicked — they attempted at least one intercept
+
+  // Populate flash overlay — stays until user clicks "Got it →"
+  const flashIcon  = document.getElementById('sim-flash-icon');
+  const flashTitle = document.getElementById('sim-flash-title');
+  const flashBody  = document.getElementById('sim-flash-body');
+  if (flashIcon)  flashIcon.textContent  = script.flashIcon;
+  if (flashTitle) flashTitle.textContent = script.flashTitle;
+  if (flashBody)  flashBody.textContent  = script.flashBody;
+  simSetOverlay('flash');
+
+  // Wire one-time dismiss button — user reads at their own pace then clicks "Got it →"
+  const dismissBtn = document.getElementById('sim-flash-dismiss');
+  if (dismissBtn) {
+    const onDismiss = () => {
+      dismissBtn.removeEventListener('click', onDismiss);
+      simSetOverlay('none');
+      pktEl.classList.remove('sim-packet-visible');
+      simShowInterceptResult(script, index);
+    };
+    dismissBtn.addEventListener('click', onDismiss);
+  }
+}
+
+// ── Intercept result (rendered after flash is dismissed) ───────────────────────
+function simShowInterceptResult(script, index) {
+  const canTriggerPwned    = !simPkceOn && script.canTriggerPwned;
+  const canTriggerDefended =  simPkceOn && script.canTriggerDefended;
+
+  const resEl = document.getElementById('sim-result-content');
+  if (!resEl) return;
+  resEl.innerHTML = `
+    <div class="sim-result-intercept">
+      <div class="sim-result-label ${simEsc(script.resultLabelClass)}">${simEsc(script.resultLabel)}</div>
+      <div class="sim-result-title">${simEsc(script.resultTitle)}</div>
+      <pre class="sim-result-payload">${simEsc(script.resultPayload)}</pre>
+      <div class="sim-result-actions">
+        <button class="sim-btn-continue" id="sim-btn-continue">Continue \u2192</button>
+        <button class="sim-btn-restart" id="sim-btn-restart">\u21ba Try again</button>
+      </div>
+    </div>`;
+
+  const cont    = document.getElementById('sim-btn-continue');
+  const restart = document.getElementById('sim-btn-restart');
+  if (cont) cont.addEventListener('click', () => {
+    if (canTriggerPwned)    { simEndPwned();    return; }
+    if (canTriggerDefended) { simEndDefended(); return; }
+    simRunStep(index + 1);
+  });
+  if (restart) restart.addEventListener('click', simStartRun);
+}
+
+// ── Packet landed (not intercepted) ───────────────────────────────────────────
+function simPacketLanded(step, pktEl, index) {
+  simFlightTimer = null;
+  pktEl.classList.remove('sim-packet-visible', 'sim-packet-clickable');
+  pktEl.style.pointerEvents = 'none';
+
+  const toEl = simActorEl(step.actorTo);
+  if (toEl) {
+    toEl.classList.add('sim-actor-arrive');
+    setTimeout(() => { if (toEl) toEl.classList.remove('sim-actor-arrive'); }, 500);
+  }
+
+  const resEl = document.getElementById('sim-result-content');
+  if (resEl) resEl.innerHTML = `<div class="sim-result-missed"><span class="sim-missed-text">Packet landed unintercepted \u2014 continuing\u2026</span></div>`;
+
+  simFlightTimer = setTimeout(() => {
+    simFlightTimer = null;
+    simRunStep(index + 1);
+  }, 750);
+}
+
+// ── End screens ────────────────────────────────────────────────────────────────
+function simEndPwned() {
+  simRunning = false;
+  const body   = document.getElementById('sim-pwned-body');
+  const lesson = document.getElementById('sim-pwned-lesson');
+  if (body) {
+    body.innerHTML = `
+      <div class="sim-pwned-token">
+        <span class="sim-pwned-token-label">access_token:</span>
+        <span class="sim-pwned-token-value">${simEsc(SIM_PWNED.token)}</span>
+      </div>
+      <div class="sim-pwned-scopes">Scopes stolen: <strong>${simEsc(SIM_PWNED.scopes)}</strong></div>
+      <div class="sim-pwned-lessons">${SIM_PWNED.lessons.map(l => `<div class="sim-pwned-lesson-line">\u2014 ${simEsc(l)}</div>`).join('')}</div>`;
+  }
+  if (lesson) lesson.textContent = '';
+  simSetOverlay('pwned');
+}
+
+function simEndDefended() {
+  simRunning = false;
+  const body = document.getElementById('sim-defended-body');
+  if (body) {
+    const listHtml = SIM_DEFENDED.defenses.map(d =>
+      `<div class="sim-defended-item">
+        <span class="sim-defended-wave">${simEsc(d.label)}</span>
+        <span class="sim-defended-text">${simEsc(d.text)}</span>
+      </div>`).join('');
+    body.innerHTML = `
+      <div class="sim-defended-list">${listHtml}</div>
+      <div class="sim-defended-lesson">${simEsc(SIM_DEFENDED.lesson)}</div>`;
+  }
+  simSetOverlay('defended');
+}
+
+// ── Missed — user let all packets land without intercepting ────────────────────
+function simEndMissed() {
+  simRunning = false;
+  simSetOverlay('missed');
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+function initSimulate() {
+  // PKCE toggle
+  const toggleBtn = document.getElementById('sim-pkce-toggle');
+  if (toggleBtn) toggleBtn.addEventListener('click', simTogglePkce);
+
+  // Replay buttons on end screens
+  const replayPwned    = document.getElementById('sim-btn-replay-pwned');
+  const replayDefended = document.getElementById('sim-btn-replay-defended');
+  const replayMissed   = document.getElementById('sim-btn-replay-missed');
+  if (replayPwned)    replayPwned.addEventListener('click',    simStartRun);
+  if (replayDefended) replayDefended.addEventListener('click', simStartRun);
+  if (replayMissed)   replayMissed.addEventListener('click',   simStartRun);
+
+  // HUD restart — always visible in the top bar, works at any point in the game
+  const hudRestart = document.getElementById('sim-hud-restart');
+  if (hudRestart) hudRestart.addEventListener('click', simStartRun);
+
+  // Always unlock immediately — the game is playable regardless of OAuth status
+  simUnlock();
+}
