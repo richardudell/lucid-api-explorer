@@ -492,7 +492,7 @@ def _mcp_python_note() -> str:
         "from mcp import ClientSession\n"
         "from mcp.client.streamable_http import streamablehttp_client\n"
         "from mcp.client.auth import OAuthClientProvider\n\n"
-        "# Full example: https://github.com/anthropics/mcp-python\n"
+        "# Full example: https://github.com/modelcontextprotocol/python-sdk\n"
         "# Authentication uses OAuth 2.0 + Dynamic Client Registration.\n"
         "# The OAuthClientProvider handles DCR and token management automatically."
     )

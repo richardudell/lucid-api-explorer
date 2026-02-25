@@ -298,7 +298,7 @@ const ENDPOINTS = {
     method: 'POST',
     label: 'refreshAccessToken',
     urlTemplate: 'https://api.lucid.co/oauth2/token',
-    description: 'Create a new access token from an authorization code, or refresh an existing token using a refresh token. client_id and client_secret are injected server-side — never exposed to the browser. On success, the new token is automatically saved to server memory.',
+    description: 'Create a new access token from an authorization code, or refresh an existing token using a refresh token. client_id and client_secret are injected by this app — never exposed to the browser. On success, the new token is automatically saved to this app\'s memory.',
     scope: 'client credentials (no Bearer token)',
     docsUrl: 'https://developer.lucid.co/reference/createorrefreshaccesstoken',
     params: [
@@ -470,7 +470,12 @@ const $$ = (sel) => document.querySelectorAll(sel);
 // Topbar
 const authDot           = $('#auth-status-dot');
 const authLabel         = $('#auth-status-label');
-const scopeTagsEl       = $('#scope-tags');
+const scopeSummaryTrigger = $('#scope-summary-trigger');
+const scopeSummaryPanel = $('#scope-summary-panel');
+const scopeSummaryUserPill = $('#scope-summary-user');
+const scopeSummaryAccountPill = $('#scope-summary-account');
+const scopeSummaryUserList = $('#scope-summary-user-list');
+const scopeSummaryAccountList = $('#scope-summary-account-list');
 const btnReauth         = $('#btn-reauth');
 const btnReauthAccount  = $('#btn-reauth-account');
 
@@ -559,26 +564,37 @@ function updateAuthUI(status) {
     btnMcpSubmit.title = mcpOk ? '' : 'Connect MCP first';
   }
 
-  // Render scope tags for user token
-  scopeTagsEl.innerHTML = '';
-  if (restOk && status.rest.scopes.length) {
-    status.rest.scopes.forEach(scope => {
-      const tag = document.createElement('span');
-      tag.className = 'scope-tag';
-      tag.textContent = scope;
-      scopeTagsEl.appendChild(tag);
-    });
-  }
-  // Render scope tags for account token (with distinct style)
-  if (restAccountOk && status.rest_account.scopes.length) {
-    status.rest_account.scopes.forEach(scope => {
-      const tag = document.createElement('span');
-      tag.className = 'scope-tag scope-tag-account';
-      tag.title = 'Account token scope';
-      tag.textContent = scope;
-      scopeTagsEl.appendChild(tag);
-    });
-  }
+  renderScopeSummary(status);
+}
+
+function renderScopeSummary(status) {
+  const userAuthed = !!(status.rest && status.rest.authenticated);
+  const accountAuthed = !!(status.rest_account && status.rest_account.authenticated);
+  const userScopes = (status.rest && Array.isArray(status.rest.scopes)) ? status.rest.scopes : [];
+  const accountScopes = (status.rest_account && Array.isArray(status.rest_account.scopes)) ? status.rest_account.scopes : [];
+
+  scopeSummaryUserPill.textContent = userAuthed ? `U ✓` : 'U -';
+  scopeSummaryAccountPill.textContent = accountAuthed ? `A ✓` : 'A -';
+
+  scopeSummaryUserPill.classList.toggle('scope-summary-pill-active', userAuthed);
+  scopeSummaryUserPill.classList.toggle('scope-summary-pill-inactive', !userAuthed);
+  scopeSummaryAccountPill.classList.toggle('scope-summary-pill-active', accountAuthed);
+  scopeSummaryAccountPill.classList.toggle('scope-summary-pill-inactive', !accountAuthed);
+
+  scopeSummaryUserPill.title = userAuthed
+    ? `User token active (${userScopes.length} scopes)`
+    : 'User token not authenticated';
+  scopeSummaryAccountPill.title = accountAuthed
+    ? `Account token active (${accountScopes.length} scopes)`
+    : 'Account token not authenticated';
+
+  scopeSummaryUserList.innerHTML = userScopes.length
+    ? userScopes.map(s => `<span class="scope-chip">${escapeHtml(s)}</span>`).join('')
+    : '<span class="scope-summary-empty">No user token scopes authorized</span>';
+
+  scopeSummaryAccountList.innerHTML = accountScopes.length
+    ? accountScopes.map(s => `<span class="scope-chip scope-chip-account">${escapeHtml(s)}</span>`).join('')
+    : '<span class="scope-summary-empty">No account token scopes authorized</span>';
 }
 
 // Check for auth result in URL on page load (redirected back from OAuth)
@@ -622,7 +638,7 @@ async function handleOAuthRedirect() {
       addTerminalLine(ts(), '③ Browser redirected → user approved on Lucid consent screen', 'ok');
       addTerminalLine(ts(), '④ /mcp/callback received ?code= — CSRF state validated', 'ok');
       addTerminalLine(ts(), '⑤ POST /oauth2/token — server exchanged code + verifier for access token', 'ok');
-      addTerminalLine('',   '   Token stored in server memory only. Session active. ✓', 'ok');
+      addTerminalLine('',   '   Token held in this app\'s memory only. Session active. ✓', 'ok');
     } else {
       addTerminalSection('── MCP AUTH ERROR ───────────────────────────────────────────');
       addTerminalLine(new Date().toLocaleTimeString(), `✗ MCP auth failed: ${mcpError}`, 'err');
@@ -713,7 +729,7 @@ async function renderOAuthFlowInTerminal() {
         ? `Expires: ${new Date(data.expires_at).toLocaleTimeString()}`
         : 'No expiry recorded';
       addTerminalLine(new Date().toLocaleTimeString(), `✓ Authenticated. Scopes: ${scopes}. ${expires}`, 'in');
-      addTerminalLine('', '  Token stored in server memory only — not written to disk.', 'in');
+      addTerminalLine('', '  Token held in this app\'s memory — not written to disk.', 'in');
       await pollAuthStatus(); // refresh topbar indicator
     } else {
       const errorStep = data.steps.find(s => s.status === 'error');
@@ -835,7 +851,7 @@ const FLOW_STEP_CONFIG = [
   // Step 1 — server generates CSRF state token (internal)
   { dir: 'internal', actor: 'server', track: null,
     defaultLabel:  'State token generated',
-    defaultDetail: 'A cryptographically random value stored in server memory to prevent CSRF attacks.' },
+    defaultDetail: 'A cryptographically random value stored in this app\'s memory to prevent CSRF attacks. When the callback arrives, this app checks the returned state matches what it stored.' },
   // Step 2 — server builds auth URL and 302-redirects browser toward Lucid
   { dir: 'left', track: 1, from: 'server', to: 'browser', packetClass: 'packet-redirect',
     defaultLabel:  'Browser redirected to Lucid',
@@ -1286,8 +1302,8 @@ function _applyFlowData(data) {
     const expires = data.expires_at
       ? ` Expires at ${new Date(data.expires_at + 'Z').toLocaleTimeString()}.` : '';
     authSuccessDetail.textContent =
-      `Access token stored in server memory. Scopes granted: ${scopes}.${expires} ` +
-      `Token disappears on server restart — nothing written to disk.`;
+      `Access token held in this app's memory. Scopes granted: ${scopes}.${expires} ` +
+      `Token disappears when you stop python main.py — nothing written to disk.`;
     btnOpenLucid.textContent = 'Close';
     btnOpenLucid.disabled = false;
     _modalButtonMode = 'close';
@@ -1418,7 +1434,7 @@ const DCR_STEPS = [
   {
     id: 'dcr-redirect',
     title: 'Build Authorization URL & Redirect',
-    detail: 'Using the freshly issued client_id, the server builds a standard OAuth 2.0 authorization URL with PKCE (Proof Key for Code Exchange). The browser is redirected to Lucid\'s consent screen. PKCE adds a code_challenge so even if the auth code is intercepted, it\'s useless without the verifier.',
+    detail: 'Using the freshly issued client_id, the server builds an authorization URL and sends your browser there via a <strong>302 redirect</strong> — HTTP\'s way of saying "go here instead." Your browser follows it automatically to Lucid\'s consent screen. The URL includes a <strong>PKCE</strong> (Proof Key for Code Exchange) <strong>code_challenge</strong>: a one-way hash of a random secret. Without PKCE, anyone who intercepted the authorization code in transit could exchange it for a token themselves. With PKCE, the code is useless alone — the original secret never left the server, so only this server can complete the exchange.',
     actorEffect: { server: 'dcr-active', lucid: null },
     arrowEffect: { track: 1, dir: 'left', packetClass: 'dcr-pkt-redirect', label: '302 → Lucid consent' },
     arrivedActor: 'browser',
@@ -1432,7 +1448,7 @@ const DCR_STEPS = [
   {
     id: 'dcr-consent',
     title: 'User Grants Consent',
-    detail: 'The engineer clicks "Allow" on Lucid\'s consent screen. Lucid redirects back to /mcp/callback with a one-time authorization code. This code is short-lived (~60s) and single-use — it must be exchanged immediately.',
+    detail: 'You click "Allow" on Lucid\'s consent screen. Lucid redirects back to your server with a one-time <strong>authorization code</strong> — short-lived (~60s) and single-use. The URL also includes a <strong>state</strong> value your server set at the start. Your server checks that it matches — this is <strong>CSRF protection</strong>. CSRF (Cross-Site Request Forgery) is an attack where a malicious site tricks your browser into making a request on your behalf. The state check proves the redirect came from the same flow your server started, not from an attacker.',
     actorEffect: { server: null, lucid: 'dcr-active' },
     arrowEffect: { track: 2, dir: 'left', packetClass: 'dcr-pkt-code', label: '?code=…' },
     arrivedActor: 'server',
@@ -1460,14 +1476,18 @@ const DCR_STEPS = [
   {
     id: 'dcr-use',
     title: 'Authenticated MCP Requests',
-    detail: 'The access token is stored in server memory. Every MCP prompt is sent via Streamable HTTP with the Bearer token in the Authorization header. The mcp package\'s OAuthClientProvider attaches the token automatically and handles refresh when it expires.',
+    detail: 'Your server sends the prompt to Lucid\'s MCP server over <strong>Streamable HTTP</strong> — a transport where the request goes out as a normal HTTP POST, but the response can stream back in chunks (like how ChatGPT types its answer progressively). The MCP server interprets your intent, makes the appropriate <strong>Lucid REST API calls</strong>, and streams results back. So yes: MCP is a natural language wrapper around Lucid\'s APIs. The <code>mcp</code> package handles token attachment, streaming, and refresh invisibly.',
     actorEffect: { server: 'dcr-active', lucid: null },
-    arrowEffect: { track: 2, dir: 'right', packetClass: 'dcr-pkt-token', label: 'Streamable HTTP + Bearer' },
-    arrivedActor: 'lucid',
+    arrowEffect: null,
+    streamEffect: [
+      { track: 2, dir: 'right', packetClass: 'dcr-pkt-token',  label: 'prompt →'    },
+      { track: 2, dir: 'left',  packetClass: 'dcr-pkt-stream', label: '← streaming' },
+    ],
+    arrivedActor: 'server',
     arrivedEffect: 'dcr-arrived',
     calloutClass: 'dcr-ok',
     payload: {
-      req: `POST https://mcp.lucid.app/mcp\nAuthorization: Bearer eyJ…\nContent-Type: application/json\n\n{ "jsonrpc": "2.0", "method": "tools/call", … }`,
+      req: `POST https://mcp.lucid.app/mcp\nAuthorization: Bearer eyJ…\nContent-Type: application/json\n\n// JSON-RPC: a standard format for calling remote functions over HTTP.\n// "method": what to do — "tools/call" means "run this MCP tool"\n// "params": the tool name + arguments your server decided to use\n{\n  "jsonrpc": "2.0",\n  "method": "tools/call",\n  "params": {\n    "name": "search_documents",\n    "arguments": { "query": "your prompt here" }\n  }\n}`,
       res: `HTTP 200 OK\n\n{ "content": [ { "type": "text", "text": "…results…" } ] }`,
     },
   },
@@ -1582,6 +1602,9 @@ function _dcrRenderStep(idx) {
     p.style.left = '0px';
   });
 
+  // Remove streaming state from track 2 (only active during Step 5)
+  $('#dcr-track-2').classList.remove('dcr-streaming');
+
   if (_dcrAnimTimer) { clearTimeout(_dcrAnimTimer); _dcrAnimTimer = null; }
 
   // Apply actor start state
@@ -1630,6 +1653,13 @@ function _dcrRenderStep(idx) {
         _dcrCalloutEl.className = step.calloutClass || '';
       }, durationMs + 40);
     }));
+  } else if (step.streamEffect) {
+    // Streaming step — two-packet sequence: prompt right, result left
+    const track2 = $('#dcr-track-2');
+    track2.classList.add('dcr-streaming');
+    _dcrCalloutEl.className = step.calloutClass || '';
+    if (step.actorEffect?.server) _dcrActorServer.classList.add(step.actorEffect.server);
+    _animateStreamPackets(step.streamEffect, step);
   } else {
     // Internal step — pulse server
     _dcrActorServer.classList.add('dcr-pulse');
@@ -1639,7 +1669,7 @@ function _dcrRenderStep(idx) {
   // Callout text
   _dcrBadgeEl.textContent  = `STEP ${idx + 1}`;
   _dcrTitleEl.textContent  = step.title;
-  _dcrDetailEl.textContent = step.detail;
+  _dcrDetailEl.innerHTML = step.detail;
 
   // Payload
   if (step.payload) {
@@ -1655,9 +1685,91 @@ function _dcrRenderStep(idx) {
   _dcrPayloadBtn.textContent = 'Show payload ▾';
 }
 
+// Two-packet streaming animation for Step 5 (Streamable HTTP).
+// Sends a "prompt →" packet right, then a "← streaming" packet left,
+// to show the bidirectional nature of the Streamable HTTP transport.
+function _animateStreamPackets(effects, step) {
+  const [firstEffect, secondEffect] = effects;
+  const pkt = _dcrPacket2; // track 2 always uses packet2
+
+  // Reset packet cleanly
+  pkt.className = 'dcr-packet';
+  pkt.textContent = '';
+  pkt.style.transition = 'none';
+  pkt.style.left = '0px';
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const trackWidth = pkt.parentElement?.clientWidth ?? 0;
+    const gap = 12;
+    const maxRight = Math.max(gap, trackWidth - (pkt.offsetWidth || 80) - gap);
+
+    // ── First packet: prompt → (right) ──────────────────────────────────────
+    pkt.textContent = firstEffect.label;
+    pkt.classList.add(firstEffect.packetClass, 'dcr-packet-visible');
+    pkt.style.left = `${gap}px`;
+    pkt.offsetHeight; // force layout
+    const dur1 = 680;
+    pkt.style.transition = `left ${dur1}ms cubic-bezier(0.16, 0.84, 0.28, 1), opacity 220ms ease`;
+    pkt.style.left = `${maxRight}px`;
+
+    _dcrAnimTimer = setTimeout(() => {
+      pkt.classList.add('dcr-packet-dock');
+      setTimeout(() => pkt.classList.remove('dcr-packet-dock'), 280);
+
+      // Short pause, then return packet slides back left
+      setTimeout(() => {
+        pkt.style.transition = 'opacity 150ms ease';
+        pkt.classList.remove('dcr-packet-visible');
+
+        setTimeout(() => {
+          // ── Second packet: ← streaming (left) ───────────────────────────
+          pkt.className = 'dcr-packet';
+          pkt.textContent = secondEffect.label;
+          pkt.classList.add(secondEffect.packetClass);
+          pkt.style.transition = 'none';
+          pkt.style.left = `${maxRight}px`;
+          pkt.offsetHeight; // force layout
+          const dur2 = 750;
+          pkt.style.transition = `left ${dur2}ms cubic-bezier(0.16, 0.84, 0.28, 1), opacity 220ms ease`;
+          pkt.classList.add('dcr-packet-visible');
+          pkt.style.left = `${gap}px`;
+
+          _dcrAnimTimer = setTimeout(() => {
+            pkt.classList.add('dcr-packet-dock');
+            setTimeout(() => pkt.classList.remove('dcr-packet-dock'), 280);
+            // Stream arrives at Your Server — light it up green
+            const arrivedRef = _actorRefForId(step.arrivedActor);
+            if (arrivedRef && step.arrivedEffect) arrivedRef.classList.add(step.arrivedEffect);
+            if (step.actorEffect?.server) _dcrActorServer.classList.remove(step.actorEffect.server);
+          }, dur2 + 40);
+        }, 160);
+      }, 380);
+    }, dur1 + 40);
+  }));
+}
+
 // MCP button wiring is done inside init() below — see that function.
 
 // ── Button wiring ──────────────────────────────────────────────────────────────
+
+const FALLBACK_SCOPES = {
+  user: [
+    { scope: 'account.user:readonly', description: 'Read user accounts, emails, and profile data', endpoints: ['getUser', 'userEmailSearch', 'getUserProfile'], enterprise_only: false },
+    { scope: 'user.profile', description: "Read the authenticated user's own extended profile", endpoints: ['getUserProfile'], enterprise_only: false },
+    { scope: 'account.info', description: 'Read basic account information (name, plan, ID)', endpoints: ['getAccountInfo'], enterprise_only: false },
+    { scope: 'lucidchart.document.content:readonly', description: 'Read Lucidchart document metadata and content', endpoints: ['searchDocuments', 'getDocument', 'getDocumentContents'], enterprise_only: false },
+    { scope: 'lucidchart.document.content', description: 'Read and modify Lucidchart documents (create, trash)', endpoints: ['createDocument', 'trashDocument'], enterprise_only: false },
+    { scope: 'folder:readonly', description: 'List folders and read their contents', endpoints: ['getFolder', 'listFolderContents', 'listRootFolderContents'], enterprise_only: false },
+    { scope: 'folder', description: 'Create, rename, trash, and restore folders', endpoints: ['createFolder', 'updateFolder', 'trashFolder', 'restoreFolder'], enterprise_only: false },
+    { scope: 'offline_access', description: 'Receive a refresh token — allows renewing access without re-authenticating', endpoints: ['(refresh token — not endpoint-specific)'], enterprise_only: false },
+  ],
+  account: [
+    { scope: 'account.user:readonly', description: 'Read user accounts, emails, and profile data', endpoints: ['listUsers'], enterprise_only: false },
+    { scope: 'account.user', description: 'Read and manage user accounts (create, modify)', endpoints: ['createUser'], enterprise_only: false },
+    { scope: 'lucidchart.document.content:admin.readonly', description: 'Read all account documents — Enterprise Shield accounts only.', endpoints: ['searchAccountDocuments'], enterprise_only: true },
+    { scope: 'offline_access', description: 'Receive a refresh token — allows renewing access without re-authenticating', endpoints: ['(refresh token — not endpoint-specific)'], enterprise_only: false },
+  ],
+};
 
 // startAuthFlow: opens scope selector (no longer auto-redirects)
 function startAuthFlow(flowType = 'user') {
@@ -1673,12 +1785,26 @@ async function openScopeSelector(flowType = 'user') {
 
   try {
     const res = await fetch('/auth/required-scopes');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      let detail = '';
+      try {
+        detail = await res.text();
+      } catch (_) {}
+      throw new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
+    }
     const data = await res.json();
     const scopes = flowType === 'account' ? data.account : data.user;
     renderScopeList(scopes);
   } catch (err) {
-    scopeList.innerHTML = `<div style="padding:10px 14px;font-size:11px;color:var(--error-red)">Failed to load scopes: ${err.message}</div>`;
+    // Graceful fallback so auth is never blocked by scope-discovery failures.
+    const fallback = flowType === 'account' ? FALLBACK_SCOPES.account : FALLBACK_SCOPES.user;
+    renderScopeList(fallback);
+    scopeList.insertAdjacentHTML(
+      'afterbegin',
+      `<div style="padding:10px 14px;font-size:11px;color:var(--warning-amber);border-bottom:1px solid var(--border);">
+        Scope discovery failed (${escapeHtml(err.message)}). Using built-in fallback scopes.
+      </div>`
+    );
   }
 }
 
@@ -2021,8 +2147,8 @@ function renderParamFields(params) {
       tokenHelper.innerHTML = `
         <span class="token-source-label">
           ${useRefreshToken
-            ? 'Use the refresh token stored in server memory to populate this field:'
-            : 'Tokens are stored in server memory — use the buttons below to populate this field:'}
+            ? 'Use the refresh token held in this app\'s memory to populate this field:'
+            : 'Tokens are held in this app\'s memory — use the buttons below to populate this field:'}
         </span>
         <div class="token-source-buttons">
           <button class="btn-token-source" data-token-type="user" data-target-input="param-${param.name}">
@@ -2149,6 +2275,9 @@ async function executeEndpoint(ep, params) {
 
   const startTime = Date.now();
 
+  // Fire architecture diagram animation immediately (we'll update status on response)
+  archAnimate(ep.surface || 'rest', ep.method || 'POST', ep.urlTemplate || '', '…');
+
   try {
     const payload = {
       endpoint: currentEndpointKey,
@@ -2163,6 +2292,9 @@ async function executeEndpoint(ep, params) {
 
     const latency = Date.now() - startTime;
     const data = await res.json();
+
+    // Re-animate with real status code now that we have the response
+    archAnimate(ep.surface || 'rest', ep.method || 'POST', ep.urlTemplate || '', data.status_code || res.status);
 
     // Update response viewer
     displayResponse(data, latency);
@@ -2492,6 +2624,9 @@ btnMcpSubmit.addEventListener('click', async () => {
   btnMcpSubmit.disabled = true;
   btnMcpSubmit.innerHTML = '<span class="spinner"></span>Submitting...';
 
+  // Animate diagram: NL prompt flows Browser → This App → Lucid MCP
+  archAnimate('mcp', 'POST', '/api/mcp/prompt', '…');
+
   try {
     const res = await fetch('/api/mcp/prompt', {
       method: 'POST',
@@ -2500,12 +2635,17 @@ btnMcpSubmit.addEventListener('click', async () => {
     });
 
     const data = await res.json();
+    // Re-animate with real status code
+    archAnimate('mcp', 'POST', '/api/mcp/prompt', data.status_code || res.status);
     renderMcpResponse(data);
 
     renderTerminal(data);
-    switchTab('narrative');
-    await fetchNarrative(data);
+    renderCode(data);
+
+    // Store for on-demand narrative — same pattern as executeEndpoint (preserves API tokens)
     lastExecutionContext = data;
+    narrativeOutput.innerHTML = '<span class="terminal-placeholder">Click "Get Narrative" to have Claude narrate this request.</span>';
+    btnGetNarrative.classList.remove('hidden');
   } catch (err) {
     appendTerminalMessage(`MCP request failed: ${err.message}`, 'err');
   } finally {
@@ -2639,6 +2779,29 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── Scope Summary Panel ───────────────────────────────────────────────────────
+let _scopeSummaryOpen = false;
+
+function openScopeSummary() {
+  if (_tokenPanelOpen) closeTokenPanel();
+  _scopeSummaryOpen = true;
+  scopeSummaryPanel.classList.remove('hidden');
+  scopeSummaryTrigger.classList.add('open');
+  scopeSummaryTrigger.setAttribute('aria-expanded', 'true');
+}
+
+function closeScopeSummary() {
+  _scopeSummaryOpen = false;
+  scopeSummaryPanel.classList.add('hidden');
+  scopeSummaryTrigger.classList.remove('open');
+  scopeSummaryTrigger.setAttribute('aria-expanded', 'false');
+}
+
+function toggleScopeSummary() {
+  if (_scopeSummaryOpen) closeScopeSummary();
+  else openScopeSummary();
+}
+
 // ── Token Visibility Panel ─────────────────────────────────────────────────────
 // Dropdown anchored to the topbar center, showing live token state for all slots.
 // Opens on click, closes on outside click or Escape. Refreshes every second when
@@ -2651,6 +2814,7 @@ let _tokenPanelOpen      = false;
 let _tokenPanelInterval  = null;
 
 function openTokenPanel() {
+  if (_scopeSummaryOpen) closeScopeSummary();
   _tokenPanelOpen = true;
   tokenPanel.classList.remove('hidden');
   tokenPanelTrigger.classList.add('open');
@@ -2688,6 +2852,7 @@ async function refreshTokenPanel() {
   renderTokenSlot('user',    peek?.user_token    ?? null);
   renderTokenSlot('account', peek?.account_token ?? null);
   renderScimSlot(authStatus?.scim ?? null);
+  renderMcpSlot(authStatus?.mcp  ?? null);
 }
 
 function renderTokenSlot(slotId, data) {
@@ -2759,6 +2924,33 @@ function renderScimSlot(scimStatus) {
     fieldRow('expiry', '<span style="color:var(--text-muted)">no expiry — rotate manually</span>');
 }
 
+function renderMcpSlot(mcpStatus) {
+  const bodyEl   = $('#token-mcp-body');
+  const statusEl = $('#token-mcp-status');
+  const dotEl    = document.querySelector('#token-slot-mcp .token-slot-dot');
+
+  const authenticated = mcpStatus?.authenticated ?? false;
+
+  if (!authenticated) {
+    bodyEl.className = 'token-slot-body token-slot-empty';
+    bodyEl.textContent = 'No MCP session. Click "Connect MCP →" to authenticate.';
+    statusEl.textContent = 'none';
+    statusEl.className = 'token-slot-badge badge-none';
+    if (dotEl) dotEl.classList.add('inactive');
+    return;
+  }
+
+  if (dotEl) dotEl.classList.remove('inactive');
+  statusEl.textContent = 'active';
+  statusEl.className   = 'token-slot-badge badge-active';
+  bodyEl.className = 'token-slot-body';
+  bodyEl.innerHTML =
+    fieldRow('type',   'Bearer (OAuth 2.0)') +
+    fieldRow('method', 'Dynamic Client Registration') +
+    fieldRow('expiry', '<span style="color:var(--text-muted)">managed by mcp package</span>') +
+    fieldRow('note',   '<span style="color:var(--text-muted)">no manual setup — server registered itself</span>');
+}
+
 function fieldRow(key, valueHtml) {
   return `<div class="token-field"><span class="token-field-key">${key}</span><span class="token-field-value">${valueHtml}</span></div>`;
 }
@@ -2793,19 +2985,140 @@ document.addEventListener('click', (e) => {
   if (_tokenPanelOpen && !tokenPanel.contains(e.target) && !tokenPanelTrigger.contains(e.target)) {
     closeTokenPanel();
   }
+  if (_scopeSummaryOpen && !scopeSummaryPanel.contains(e.target) && !scopeSummaryTrigger.contains(e.target)) {
+    closeScopeSummary();
+  }
 });
 
 // Close on Escape
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && _tokenPanelOpen) closeTokenPanel();
+  if (e.key === 'Escape' && _scopeSummaryOpen) closeScopeSummary();
 });
+
+
+// ── Architecture Diagram ───────────────────────────────────────────────────────
+// Persistent sidebar mini-diagram that lights up the request path in real-time.
+// Three actors: Browser → This App → Lucid
+// Two arrows: arch-arrow-browser-app, arch-arrow-app-lucid
+// Arrow states: default (idle) | arch-flowing (request in flight) | arch-returning (response)
+
+const ARCH_LS_KEY = 'lucid_arch_collapsed';
+
+function initArch() {
+  const toggle  = $('#arch-toggle');
+  const body    = $('#arch-body');
+  const chevron = $('#arch-chevron');
+  if (!toggle || !body) return;
+
+  // Restore saved preference (default: collapsed)
+  const saved = localStorage.getItem(ARCH_LS_KEY);
+  const startExpanded = saved === 'expanded';
+  if (startExpanded) {
+    body.classList.remove('hidden');
+    toggle.setAttribute('aria-expanded', 'true');
+  }
+
+  toggle.addEventListener('click', () => {
+    const isOpen = !body.classList.contains('hidden');
+    if (isOpen) {
+      body.classList.add('hidden');
+      toggle.setAttribute('aria-expanded', 'false');
+      localStorage.setItem(ARCH_LS_KEY, 'collapsed');
+    } else {
+      body.classList.remove('hidden');
+      toggle.setAttribute('aria-expanded', 'true');
+      localStorage.setItem(ARCH_LS_KEY, 'expanded');
+    }
+  });
+}
+
+/**
+ * Animate the architecture diagram for a request/response cycle.
+ *
+ * @param {'rest'|'scim'|'mcp'} surface  - Which API surface is being called
+ * @param {string} method                - HTTP method (GET, POST, etc.)
+ * @param {string} urlHint               - Short URL or endpoint label for hover tooltip
+ * @param {number|string} statusCode     - HTTP status received (for return arrow)
+ */
+function archAnimate(surface, method, urlHint, statusCode) {
+  const arrowBrowserApp = $('#arch-arrow-browser-app');
+  const arrowAppLucid   = $('#arch-arrow-app-lucid');
+  const labelBrowserApp = $('#arch-label-browser-app');
+  const labelAppLucid   = $('#arch-label-app-lucid');
+  const actorBrowser    = $('#arch-actor-browser');
+  const actorApp        = $('#arch-actor-app');
+  const actorLucid      = $('#arch-actor-lucid');
+
+  if (!arrowBrowserApp || !arrowAppLucid) return;
+
+  // Clear any previous animation state immediately
+  [arrowBrowserApp, arrowAppLucid].forEach(a => {
+    a.classList.remove('arch-flowing', 'arch-returning');
+  });
+  [actorBrowser, actorApp, actorLucid].forEach(a => {
+    a.classList.remove('arch-active');
+  });
+
+  // Compose plain-English labels and technical hover hints
+  const techLabel = method && urlHint ? `${method} ${urlHint}` : (urlHint || 'request');
+  const statusLabel = statusCode ? `${statusCode}` : 'response';
+
+  // Phase 1: Browser → This App (request received by the app)
+  actorBrowser.classList.add('arch-active');
+  arrowBrowserApp.classList.add('arch-flowing');
+  labelBrowserApp.textContent  = 'your request';
+  labelBrowserApp.title        = techLabel;
+
+  // Phase 2 (after 400ms): This App → Lucid (proxied call to Lucid APIs)
+  const t1 = setTimeout(() => {
+    actorBrowser.classList.remove('arch-active');
+    actorApp.classList.add('arch-active');
+    arrowAppLucid.classList.add('arch-flowing');
+    labelAppLucid.textContent = 'token attached';
+    labelAppLucid.title       = `Bearer token → ${surface.toUpperCase()} API`;
+  }, 400);
+
+  // Phase 3 (after 900ms): Lucid responds → This App
+  const t2 = setTimeout(() => {
+    actorApp.classList.remove('arch-active');
+    actorLucid.classList.add('arch-active');
+    arrowAppLucid.classList.remove('arch-flowing');
+    arrowAppLucid.classList.add('arch-returning');
+    labelAppLucid.textContent = 'response';
+    labelAppLucid.title       = `HTTP ${statusLabel} from Lucid`;
+  }, 900);
+
+  // Phase 4 (after 1300ms): This App → Browser (JSON returned)
+  const t3 = setTimeout(() => {
+    actorLucid.classList.remove('arch-active');
+    actorApp.classList.add('arch-active');
+    arrowBrowserApp.classList.remove('arch-flowing');
+    arrowBrowserApp.classList.add('arch-returning');
+    labelBrowserApp.textContent = 'returned to you';
+    labelBrowserApp.title       = `HTTP ${statusLabel}`;
+  }, 1300);
+
+  // Phase 5 (after 2200ms): Reset to idle — restore static route labels
+  const t4 = setTimeout(() => {
+    actorApp.classList.remove('arch-active');
+    arrowBrowserApp.classList.remove('arch-returning');
+    arrowAppLucid.classList.remove('arch-returning');
+    labelBrowserApp.textContent = 'HTTP · localhost:8000';
+    labelBrowserApp.title       = '';
+    labelAppLucid.textContent   = 'HTTPS · Lucid APIs';
+    labelAppLucid.title         = '';
+  }, 2200);
+}
 
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 
 function init() {
   initSidebar();
+  initArch();
   tokenPanelTrigger.addEventListener('click', toggleTokenPanel);
+  scopeSummaryTrigger.addEventListener('click', toggleScopeSummary);
   pollAuthStatus();
   setInterval(pollAuthStatus, 15000); // Poll every 15s to keep status fresh
   // handleOAuthRedirect last — it may open the modal which reads DOM state

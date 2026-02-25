@@ -123,6 +123,7 @@ html, body {
 }
 
 .token-panel-trigger.open .token-panel-chevron { transform: rotate(180deg); }
+.scope-summary-trigger.open .token-panel-chevron { transform: rotate(180deg); }
 
 /* ── Token visibility panel ─────────────────────────────────────────────────── */
 #token-panel {
@@ -177,10 +178,12 @@ html, body {
 .dot-user        { background: var(--terminal-green); box-shadow: 0 0 4px var(--terminal-green); }
 .dot-account     { background: var(--warning-amber);  box-shadow: 0 0 4px var(--warning-amber); }
 .dot-scim-panel  { background: var(--put-color);      box-shadow: 0 0 4px var(--put-color); }
+.dot-mcp-panel   { background: var(--mcp-color);      box-shadow: 0 0 4px var(--mcp-color); }
 
 .dot-user.inactive    { background: var(--text-muted); box-shadow: none; }
 .dot-account.inactive { background: var(--text-muted); box-shadow: none; }
 .dot-scim-panel.inactive { background: var(--text-muted); box-shadow: none; }
+.dot-mcp-panel.inactive  { background: var(--text-muted); box-shadow: none; }
 
 .token-slot-badge {
   margin-left: auto;
@@ -257,12 +260,133 @@ html, body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  position: relative;
 }
 
-#scope-tags {
+.scope-summary-trigger {
   display: flex;
+  align-items: center;
   gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel-dark);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  border-radius: 4px;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.scope-summary-trigger:hover,
+.scope-summary-trigger.open {
+  background: var(--panel-mid);
+  border-color: color-mix(in srgb, var(--lucid-blue) 50%, var(--border));
+}
+
+.scope-summary-label {
+  color: var(--text-secondary);
+}
+
+.scope-summary-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+.scope-summary-pill.scope-user {
+  color: var(--terminal-green);
+  border-color: color-mix(in srgb, var(--terminal-green) 50%, var(--border));
+  background: color-mix(in srgb, var(--terminal-green) 12%, transparent);
+}
+
+.scope-summary-pill.scope-account {
+  color: var(--warning-amber);
+  border-color: color-mix(in srgb, var(--warning-amber) 50%, var(--border));
+  background: color-mix(in srgb, var(--warning-amber) 12%, transparent);
+}
+
+.scope-summary-pill.scope-summary-pill-active {
+  opacity: 1;
+}
+
+.scope-summary-pill.scope-summary-pill-inactive {
+  opacity: 0.5;
+  filter: saturate(0.65);
+}
+
+#scope-summary-panel {
+  position: absolute;
+  top: calc(var(--topbar-h) + 4px);
+  left: 0;
+  width: min(420px, calc(100vw - 24px));
+  background: var(--panel-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 210;
+  padding: 10px 12px;
+}
+
+.scope-summary-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.scope-summary-section {
+  margin-bottom: 8px;
+}
+
+.scope-summary-section:last-child {
+  margin-bottom: 0;
+}
+
+.scope-summary-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.scope-summary-list {
+  display: flex;
   flex-wrap: wrap;
+  gap: 4px;
+  min-height: 22px;
+}
+
+.scope-summary-empty {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-ui);
+}
+
+.scope-chip {
+  background: var(--panel-mid);
+  border: 1px solid var(--lucid-blue);
+  color: var(--blue-light);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.scope-chip.scope-chip-account {
+  border-color: var(--warning-amber);
+  color: var(--warning-amber);
 }
 
 .scope-tag {
@@ -500,6 +624,218 @@ html, body {
   font-size: 10px;
   color: var(--text-muted);
   text-align: center;
+}
+
+/* ── Architecture diagram (sidebar) ─────────────────────────────────────────── */
+
+#sidebar-arch {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+}
+
+.arch-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  text-align: left;
+  transition: color 0.15s;
+}
+.arch-toggle:hover { color: var(--text-secondary); }
+
+.arch-chevron {
+  font-size: 8px;
+  transition: transform 0.2s;
+}
+.arch-toggle[aria-expanded="true"] .arch-chevron {
+  transform: rotate(90deg);
+}
+
+.arch-body {
+  padding: 8px 12px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.arch-body.hidden { display: none; }
+
+/* Actor boxes */
+.arch-actor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: default;
+  transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
+}
+.arch-actor:hover {
+  border-color: color-mix(in srgb, var(--lucid-blue) 50%, var(--border));
+}
+
+/* Glow states driven by JS */
+.arch-actor.arch-active {
+  border-color: var(--lucid-blue);
+  background: color-mix(in srgb, var(--lucid-blue) 8%, var(--surface));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--lucid-blue) 30%, transparent);
+}
+
+.arch-actor-icon {
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.arch-actor-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.arch-actor-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+.arch-actor-sub {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Arrow connectors */
+.arch-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 0;
+  position: relative;
+}
+
+.arch-arrow-line {
+  width: 2px;
+  height: 14px;
+  background: var(--border);
+  border-radius: 1px;
+  overflow: hidden;
+  position: relative;
+  transition: background 0.25s;
+}
+
+/* Animated pulse when request is in flight */
+@keyframes arch-pulse {
+  0%   { top: -100%; opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.arch-arrow-pulse {
+  position: absolute;
+  width: 100%;
+  height: 40%;
+  background: var(--lucid-blue);
+  border-radius: 1px;
+  top: -100%;
+  opacity: 0;
+}
+
+.arch-arrow.arch-flowing .arch-arrow-line {
+  background: color-mix(in srgb, var(--lucid-blue) 40%, var(--border));
+}
+.arch-arrow.arch-flowing .arch-arrow-pulse {
+  animation: arch-pulse 0.8s ease-in-out infinite;
+}
+.arch-arrow.arch-returning .arch-arrow-line {
+  background: color-mix(in srgb, var(--terminal-green) 40%, var(--border));
+}
+.arch-arrow.arch-returning .arch-arrow-pulse {
+  background: var(--terminal-green);
+  animation: arch-pulse 0.8s ease-in-out infinite;
+}
+
+.arch-arrow-head {
+  font-size: 8px;
+  color: var(--text-muted);
+  line-height: 1;
+  transition: color 0.25s;
+}
+.arch-arrow.arch-flowing .arch-arrow-head { color: var(--lucid-blue); }
+.arch-arrow.arch-returning .arch-arrow-head { color: var(--terminal-green); }
+
+.arch-arrow-label-wrap {
+  width: 100%;
+  text-align: center;
+}
+
+.arch-arrow-label {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--text-muted);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+  cursor: default;
+}
+.arch-arrow.arch-flowing .arch-arrow-label,
+.arch-arrow.arch-returning .arch-arrow-label {
+  background: color-mix(in srgb, var(--lucid-blue) 15%, transparent);
+  color: var(--text-secondary);
+}
+.arch-arrow.arch-returning .arch-arrow-label {
+  background: color-mix(in srgb, var(--terminal-green) 12%, transparent);
+}
+
+/* Token panel footer: support the new two-line layout */
+.token-panel-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.token-panel-footer-sub {
+  display: block;
+  font-size: 9px;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+.footer-code {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  background: color-mix(in srgb, var(--lucid-blue) 12%, transparent);
+  color: var(--text-secondary);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+/* Actor sub-label in swimlane modals */
+.actor-this-app {
+  font-size: 8px;
+  color: var(--lucid-blue);
+  opacity: 0.8;
+  font-style: italic;
+}
+.actor-role-sub {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 1px;
 }
 
 /* ── Main workspace ─────────────────────────────────────────────────────────── */
@@ -1264,12 +1600,13 @@ textarea.param-input {
   border-radius: 8px;
   width: 700px;
   max-width: calc(100vw - 32px);
+  height: calc(100vh - 48px);
   max-height: calc(100vh - 48px);
-  overflow-y: auto;
+  overflow: hidden;
   padding: 24px 28px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  row-gap: 16px;
 }
 
 #dcr-modal-header {
@@ -1353,6 +1690,15 @@ textarea.param-input {
   font-family: var(--font-mono);
   letter-spacing: 0.04em;
 }
+.dcr-actor-role {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  font-family: var(--font-mono);
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+  min-height: 12px;
+}
 
 /* Active / arrived states */
 .dcr-actor.dcr-active .dcr-actor-icon {
@@ -1369,6 +1715,20 @@ textarea.param-input {
 @keyframes dcrPulse {
   0%,100% { box-shadow: 0 0 0 0px rgba(41,98,255,0.4); }
   50%      { box-shadow: 0 0 0 7px rgba(41,98,255,0); }
+}
+
+/* Streaming connection line — animated shimmer for Step 5 */
+.dcr-arrow-track.dcr-streaming .dcr-arrow-line {
+  background: linear-gradient(90deg,
+    var(--border) 0%,
+    rgba(0,200,212,0.5) 50%,
+    var(--border) 100%);
+  background-size: 200% 100%;
+  animation: dcrStreamFlow 1.4s linear infinite;
+}
+@keyframes dcrStreamFlow {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 
 /* DCR registration step — highlight MCP actor with amber (new credentials!) */
@@ -1434,6 +1794,11 @@ textarea.param-input {
   border-color: #b67cff;
   color: #e3c9ff;
 }
+.dcr-packet.dcr-pkt-stream {
+  background: #0b3d47;
+  border-color: #00c8d4;
+  color: #9fefff;
+}
 
 /* Subtle settle effect when the packet reaches the destination actor */
 .dcr-packet.dcr-packet-dock {
@@ -1447,6 +1812,23 @@ textarea.param-input {
 }
 
 /* Callout */
+/* Scroll wrapper: contains the callout + contrast panel together.
+   Header, nav, swimlane, and action row sit outside and stay pinned. */
+#dcr-body {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-right: 2px;
+}
+
+/* Prevent internal cards from shrinking/clipping inside the scroll column.
+   When content is taller than available space, #dcr-body must scroll instead. */
+#dcr-body > * {
+  flex: 0 0 auto;
+}
+
 #dcr-callout {
   background: var(--surface-dark);
   border: 1px solid var(--border);
@@ -1488,6 +1870,18 @@ textarea.param-input {
   color: var(--text-secondary);
   line-height: 1.6;
 }
+#dcr-callout-detail strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+#dcr-callout-detail code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
 #dcr-payload-row { margin-top: 2px; }
 #dcr-payload {
   margin-top: 4px;
@@ -1509,15 +1903,37 @@ textarea.param-input {
 }
 #dcr-payload-req { border-left: 3px solid rgba(41,98,255,0.5); }
 #dcr-payload-res { border-left: 3px solid rgba(80,200,120,0.5); }
+#dcr-payload-req::before {
+  content: 'REQUEST';
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: rgba(41,98,255,0.7);
+  margin-bottom: 4px;
+}
+#dcr-payload-res::before {
+  content: 'RESPONSE';
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: rgba(80,200,120,0.7);
+  margin-bottom: 4px;
+}
 
 /* DCR vs pre-registered contrast panel */
 #dcr-contrast {
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
   gap: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
+  min-height: max-content;
 }
 .dcr-contrast-col {
   flex: 1;
@@ -1577,6 +1993,22 @@ textarea.param-input {
 }
 .dcr-tag-static  { background: rgba(150,150,150,0.15); color: var(--text-muted); }
 .dcr-tag-dynamic { background: rgba(41,98,255,0.15);   color: #6fa3ff; }
+
+#dcr-contrast-why {
+  flex-basis: 100%;
+  padding: 10px 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  border-top: 1px solid var(--border);
+  background: rgba(255,255,255,0.015);
+}
+#dcr-contrast-why strong {
+  color: var(--warning-amber);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 3px;
+}
 
 /* Actions row */
 #dcr-modal-actions {

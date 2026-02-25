@@ -61,13 +61,41 @@
           </div>
         </div>
 
+        <div id="token-slot-mcp" class="token-slot">
+          <div class="token-slot-title">
+            <span class="token-slot-dot dot-mcp-panel"></span>
+            MCP Token
+            <span id="token-mcp-status" class="token-slot-badge">none</span>
+          </div>
+          <div id="token-mcp-body" class="token-slot-body token-slot-empty">
+            No MCP session. Click "Connect MCP →" to authenticate.
+          </div>
+        </div>
+
         <div class="token-panel-footer">
-          Tokens stored in server memory only — lost on restart
+          Tokens held in this app's memory — lost when you stop <code class="footer-code">python main.py</code>
+          <span class="token-panel-footer-sub">Nothing is written to disk. Re-authenticate after each restart.</span>
         </div>
       </div>
     </div>
     <div id="topbar-right">
-      <div id="scope-tags"><!-- populated by app.js --></div>
+      <button id="scope-summary-trigger" class="scope-summary-trigger" title="View authorized scopes" aria-expanded="false" aria-controls="scope-summary-panel">
+        <span class="scope-summary-label">Scopes</span>
+        <span id="scope-summary-user" class="scope-summary-pill scope-user">U 0</span>
+        <span id="scope-summary-account" class="scope-summary-pill scope-account">A 0</span>
+        <span class="token-panel-chevron">▾</span>
+      </button>
+      <div id="scope-summary-panel" class="hidden">
+        <div class="scope-summary-header">Authorized Scopes</div>
+        <div class="scope-summary-section">
+          <div class="scope-summary-section-title">User Token</div>
+          <div id="scope-summary-user-list" class="scope-summary-list"></div>
+        </div>
+        <div class="scope-summary-section">
+          <div class="scope-summary-section-title">Account Token</div>
+          <div id="scope-summary-account-list" class="scope-summary-list"></div>
+        </div>
+      </div>
       <button id="btn-view-flows" class="btn-ghost hidden" title="View token auth flows">View Auth Flows</button>
       <button id="btn-reauth-account" class="btn-ghost" title="Authenticate account token (for createUser, listUsers)">Auth Account Token</button>
       <button id="btn-reauth" class="btn-ghost" title="Authenticate REST API user token">Auth User Token</button>
@@ -85,8 +113,12 @@
           <button id="dcr-modal-close" class="btn-ghost" title="Close">✕</button>
         </div>
         <p id="dcr-modal-subtitle">
-          Unlike the REST API, MCP has <strong>no pre-registered client ID</strong>.
-          The server issues credentials on the fly — this is DCR.
+          MCP is Lucid's natural language API — you send a plain-English prompt like
+          <em>"find my most recent document"</em> and the MCP server translates it into
+          the right Lucid API calls and returns the result. To do that on your behalf
+          it needs an access token, which requires OAuth. And unlike the REST API, MCP has
+          <strong>no pre-registered client ID</strong> — so the server registers itself
+          on the fly. That self-registration is DCR.
         </p>
       </div>
 
@@ -103,6 +135,7 @@
         <div class="dcr-actor" id="dcr-actor-browser">
           <div class="dcr-actor-icon">🌐</div>
           <div class="dcr-actor-label">Browser</div>
+          <div class="dcr-actor-role"></div>
         </div>
 
         <!-- Track 1: Browser ↔ Server -->
@@ -114,6 +147,7 @@
         <div class="dcr-actor" id="dcr-actor-server">
           <div class="dcr-actor-icon">⚙</div>
           <div class="dcr-actor-label">Your Server</div>
+          <div class="dcr-actor-role">MCP client · <span class="actor-this-app">this app</span></div>
         </div>
 
         <!-- Track 2: Server ↔ Lucid MCP -->
@@ -125,9 +159,13 @@
         <div class="dcr-actor" id="dcr-actor-lucid">
           <div class="dcr-actor-icon">◈</div>
           <div class="dcr-actor-label">Lucid MCP</div>
+          <div class="dcr-actor-role">MCP server</div>
         </div>
 
       </div><!-- /dcr-actors -->
+
+      <!-- Scrollable body: callout + contrast panel scroll together -->
+      <div id="dcr-body">
 
       <!-- Callout box -->
       <div id="dcr-callout">
@@ -166,7 +204,17 @@
             <li>Server registers itself automatically</li>
           </ul>
         </div>
+        <div id="dcr-contrast-why">
+          <strong>Why does MCP use DCR instead of a fixed client ID?</strong>
+          MCP is a protocol designed for open, dynamic ecosystems — any server should
+          be able to connect without requiring every developer to register in advance.
+          There's no central portal where every MCP client gets listed. DCR lets each
+          server introduce itself at runtime and receive credentials on the spot, so
+          the ecosystem scales without manual overhead.
+        </div>
       </div>
+
+      </div><!-- /dcr-body -->
 
       <div id="dcr-modal-actions">
         <button id="btn-dcr-connect" class="btn-execute">Connect MCP now →</button>
@@ -250,6 +298,7 @@
           <div class="flow-actor" id="actor-server">
             <div class="actor-icon">⚙</div>
             <div class="actor-label">Your Server</div>
+            <div class="actor-role-sub"><span class="actor-this-app">this app</span></div>
           </div>
 
           <!-- Track 2: Server ↔ Lucid -->
@@ -488,6 +537,70 @@
         <div id="notepad-session-label">Session only — not saved</div>
       </div>
 
+      <!-- Architecture Diagram -->
+      <div id="sidebar-arch">
+        <button id="arch-toggle" class="sidebar-section-label arch-toggle" aria-expanded="false" aria-controls="arch-body">
+          ARCHITECTURE <span id="arch-chevron" class="arch-chevron">▸</span>
+        </button>
+        <div id="arch-body" class="arch-body hidden">
+
+          <!-- Actor: Browser -->
+          <div class="arch-actor" id="arch-actor-browser"
+               title="Your browser — the tab you're looking at. It sends requests to this app running on localhost.">
+            <span class="arch-actor-icon">🌐</span>
+            <div class="arch-actor-text">
+              <span class="arch-actor-name">Your Browser</span>
+              <span class="arch-actor-sub">this tab</span>
+            </div>
+          </div>
+
+          <!-- Arrow: Browser → This App -->
+          <div class="arch-arrow" id="arch-arrow-browser-app">
+            <div class="arch-arrow-line">
+              <div class="arch-arrow-pulse"></div>
+            </div>
+            <div class="arch-arrow-label-wrap">
+              <span class="arch-arrow-label" id="arch-label-browser-app"
+                    data-plain="your request" data-tech="">HTTP · localhost:8000</span>
+            </div>
+            <div class="arch-arrow-head">▼</div>
+          </div>
+
+          <!-- Actor: This App -->
+          <div class="arch-actor" id="arch-actor-app"
+               title="This app — the Python process started by 'python main.py' on your machine. It authenticates your requests and proxies them to Lucid.">
+            <span class="arch-actor-icon">⚙</span>
+            <div class="arch-actor-text">
+              <span class="arch-actor-name">This App</span>
+              <span class="arch-actor-sub">python main.py</span>
+            </div>
+          </div>
+
+          <!-- Arrow: This App → Lucid -->
+          <div class="arch-arrow" id="arch-arrow-app-lucid">
+            <div class="arch-arrow-line">
+              <div class="arch-arrow-pulse"></div>
+            </div>
+            <div class="arch-arrow-label-wrap">
+              <span class="arch-arrow-label" id="arch-label-app-lucid"
+                    data-plain="token attached" data-tech="">HTTPS · Lucid APIs</span>
+            </div>
+            <div class="arch-arrow-head">▼</div>
+          </div>
+
+          <!-- Actor: Lucid -->
+          <div class="arch-actor" id="arch-actor-lucid"
+               title="Lucid's cloud services — REST API, SCIM API, and MCP Server. These live on Lucid's infrastructure, not your machine.">
+            <span class="arch-actor-icon">◈</span>
+            <div class="arch-actor-text">
+              <span class="arch-actor-name">Lucid</span>
+              <span class="arch-actor-sub">REST · SCIM · MCP</span>
+            </div>
+          </div>
+
+        </div><!-- /arch-body -->
+      </div><!-- /sidebar-arch -->
+
     </aside>
 
     <!-- ── MAIN WORKSPACE ──────────────────────────────────────────────── -->
@@ -616,7 +729,7 @@
             <span class="auth-banner-icon mcp-connected-icon">✓</span>
             <div class="auth-banner-text">
               <strong class="mcp-connected-label">MCP connected</strong>
-              <span>OAuth 2.0 + Dynamic Client Registration — access token active in server memory.</span>
+              <span>OAuth 2.0 + Dynamic Client Registration — access token held in this app's memory.</span>
             </div>
             <div class="auth-banner-actions">
               <button id="btn-mcp-how-connected" class="btn-ghost btn-sm btn-mcp-how">How does DCR work?</button>
