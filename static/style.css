@@ -1167,6 +1167,50 @@ textarea.param-input {
   font-size: 11px;
 }
 
+.si-gallery {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(46, 117, 182, 0.08);
+  border: 1px solid rgba(46, 117, 182, 0.25);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.si-gallery-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.si-gallery-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.si-gallery-claude-row {
+  align-items: center;
+}
+
+.si-claude-prompt {
+  flex: 1;
+  min-width: 260px;
+}
+
+.si-gallery-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  min-height: 16px;
+}
+
+.si-gallery-status.ok { color: var(--terminal-green); }
+.si-gallery-status.err { color: var(--error-red); }
+
 /* Execute button */
 .btn-execute {
   width: 100%;

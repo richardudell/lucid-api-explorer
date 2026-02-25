@@ -14,7 +14,12 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services.ai_client import generate_narrative, answer_followup, interpret_notepad
+from app.services.ai_client import (
+    generate_narrative,
+    answer_followup,
+    interpret_notepad,
+    generate_standard_import_json,
+)
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 
@@ -35,6 +40,12 @@ class FollowupRequest(BaseModel):
 class NotepadRequest(BaseModel):
     """Payload from the Ask Claude button in the sidebar notepad."""
     content: str
+
+
+class StandardImportRequest(BaseModel):
+    """Prompt + context used to generate Standard Import JSON."""
+    prompt: str
+    context: dict | None = None
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -83,5 +94,21 @@ async def notepad(body: NotepadRequest) -> JSONResponse:
     except Exception as exc:
         return JSONResponse(
             content={"response": f"Could not interpret notepad: {exc}"},
+            status_code=200,
+        )
+
+
+@router.post("/standard-import", summary="Generate Standard Import JSON for educational Lucid diagrams")
+async def standard_import(body: StandardImportRequest) -> JSONResponse:
+    """
+    Uses Claude to generate a Lucid Standard Import JSON document from an
+    instructional prompt and optional live app context.
+    """
+    try:
+        document = await generate_standard_import_json(body.prompt, body.context or {})
+        return JSONResponse(content={"document": document}, status_code=200)
+    except Exception as exc:
+        return JSONResponse(
+            content={"error": f"Could not generate Standard Import JSON: {exc}"},
             status_code=200,
         )
