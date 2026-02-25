@@ -74,6 +74,108 @@
     </div>
   </header>
 
+  <!-- ── DCR EXPLAINER MODAL ───────────────────────────────────────────────── -->
+  <!-- Shown when "How does DCR work?" is clicked. Explains DCR + OAuth flow.  -->
+  <div id="dcr-modal-overlay" class="hidden">
+    <div id="dcr-modal">
+
+      <div id="dcr-modal-header">
+        <div id="dcr-modal-title-row">
+          <span id="dcr-modal-title">MCP Auth: OAuth 2.0 + Dynamic Client Registration</span>
+          <button id="dcr-modal-close" class="btn-ghost" title="Close">✕</button>
+        </div>
+        <p id="dcr-modal-subtitle">
+          Unlike the REST API, MCP has <strong>no pre-registered client ID</strong>.
+          The server issues credentials on the fly — this is DCR.
+        </p>
+      </div>
+
+      <!-- Step navigator -->
+      <div id="dcr-nav">
+        <button id="btn-dcr-prev" class="btn-flow-nav" disabled>◄ Back</button>
+        <span id="dcr-step-counter">Step 1 of 5</span>
+        <button id="btn-dcr-next" class="btn-flow-nav">Next ►</button>
+      </div>
+
+      <!-- Actor swimlane — 3 actors, 2 tracks -->
+      <div id="dcr-actors">
+
+        <div class="dcr-actor" id="dcr-actor-browser">
+          <div class="dcr-actor-icon">🌐</div>
+          <div class="dcr-actor-label">Browser</div>
+        </div>
+
+        <!-- Track 1: Browser ↔ Server -->
+        <div class="dcr-arrow-track" id="dcr-track-1">
+          <div class="dcr-arrow-line"></div>
+          <div class="dcr-packet" id="dcr-packet-1"></div>
+        </div>
+
+        <div class="dcr-actor" id="dcr-actor-server">
+          <div class="dcr-actor-icon">⚙</div>
+          <div class="dcr-actor-label">Your Server</div>
+        </div>
+
+        <!-- Track 2: Server ↔ Lucid MCP -->
+        <div class="dcr-arrow-track" id="dcr-track-2">
+          <div class="dcr-arrow-line"></div>
+          <div class="dcr-packet" id="dcr-packet-2"></div>
+        </div>
+
+        <div class="dcr-actor" id="dcr-actor-lucid">
+          <div class="dcr-actor-icon">◈</div>
+          <div class="dcr-actor-label">Lucid MCP</div>
+        </div>
+
+      </div><!-- /dcr-actors -->
+
+      <!-- Callout box -->
+      <div id="dcr-callout">
+        <div id="dcr-callout-header">
+          <span id="dcr-callout-badge">STEP 1</span>
+          <span id="dcr-callout-title">—</span>
+        </div>
+        <div id="dcr-callout-detail"></div>
+        <div id="dcr-payload-row">
+          <button id="btn-dcr-payload" class="btn-ghost btn-payload-toggle hidden">Show payload ▾</button>
+        </div>
+        <div id="dcr-payload" class="hidden">
+          <div id="dcr-payload-req"></div>
+          <div id="dcr-payload-res"></div>
+        </div>
+      </div>
+
+      <!-- Contrast box: DCR vs pre-registered -->
+      <div id="dcr-contrast">
+        <div class="dcr-contrast-col">
+          <div class="dcr-contrast-label dcr-contrast-old">REST API (Pre-registered)</div>
+          <ul class="dcr-contrast-list">
+            <li>client_id: <code>abc123</code> <span class="dcr-tag dcr-tag-static">fixed forever</span></li>
+            <li>client_secret: <code>••••••</code> <span class="dcr-tag dcr-tag-static">fixed forever</span></li>
+            <li>Stored in Developer Portal</li>
+            <li>Required before first request</li>
+          </ul>
+        </div>
+        <div class="dcr-contrast-divider">vs</div>
+        <div class="dcr-contrast-col">
+          <div class="dcr-contrast-label dcr-contrast-new">MCP Server (DCR)</div>
+          <ul class="dcr-contrast-list">
+            <li>client_id: <code>dyn_…</code> <span class="dcr-tag dcr-tag-dynamic">issued now</span></li>
+            <li>client_secret: <code>dyn_…</code> <span class="dcr-tag dcr-tag-dynamic">issued now</span></li>
+            <li>No portal setup needed</li>
+            <li>Server registers itself automatically</li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="dcr-modal-actions">
+        <button id="btn-dcr-connect" class="btn-execute">Connect MCP now →</button>
+        <button id="btn-dcr-close" class="btn-ghost">Close</button>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ── AUTH FLOW MODAL ────────────────────────────────────────────────────── -->
   <!-- Shown when the user initiates OAuth. Explains every step as it happens.  -->
   <div id="auth-modal-overlay" class="hidden">
@@ -493,6 +595,37 @@
           <p>Send a natural language prompt to the Lucid MCP server. Claude will invoke the appropriate tools and return the result. Every tool call is logged in the Terminal tab.</p>
         </div>
 
+        <!-- Auth banner — two permanent states toggled by JS class only, never rebuilt -->
+        <div id="mcp-auth-banner" class="auth-banner">
+
+          <!-- Disconnected state (shown by default) -->
+          <div class="auth-banner-content" id="mcp-banner-disconnected">
+            <span class="auth-banner-icon">🔑</span>
+            <div class="auth-banner-text">
+              <strong>MCP not authenticated.</strong>
+              <span>Click <em>Connect MCP</em> to register a client and authorize via OAuth + DCR.</span>
+            </div>
+            <div class="auth-banner-actions">
+              <button id="btn-mcp-how" class="btn-ghost btn-sm btn-mcp-how">How does DCR work?</button>
+              <button id="btn-mcp-connect" class="btn-primary">Connect MCP →</button>
+            </div>
+          </div>
+
+          <!-- Connected state (hidden until authenticated) -->
+          <div class="auth-banner-content hidden" id="mcp-banner-connected">
+            <span class="auth-banner-icon mcp-connected-icon">✓</span>
+            <div class="auth-banner-text">
+              <strong class="mcp-connected-label">MCP connected</strong>
+              <span>OAuth 2.0 + Dynamic Client Registration — access token active in server memory.</span>
+            </div>
+            <div class="auth-banner-actions">
+              <button id="btn-mcp-how-connected" class="btn-ghost btn-sm btn-mcp-how">How does DCR work?</button>
+              <button id="btn-mcp-reconnect" class="btn-ghost btn-sm">Re-authenticate MCP</button>
+            </div>
+          </div>
+
+        </div>
+
         <div id="mcp-capabilities">
           <div class="param-editor-label">AVAILABLE CAPABILITIES</div>
           <ul class="capability-list">
@@ -513,6 +646,10 @@
         <div id="mcp-response-viewer" class="hidden">
           <div class="response-header">
             <span class="response-label">MCP RESPONSE</span>
+          </div>
+          <div id="mcp-structured-results" class="mcp-structured-results hidden"></div>
+          <div id="mcp-raw-controls" class="mcp-raw-controls hidden">
+            <button id="btn-mcp-raw-toggle" class="btn-ghost btn-sm">Show raw MCP payload ▾</button>
           </div>
           <pre id="mcp-response-content" class="json-viewer"></pre>
         </div>
