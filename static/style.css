@@ -416,7 +416,7 @@ html, body {
   top: var(--topbar-h);
   left: 0;
   right: 0;
-  bottom: var(--bottom-h);
+  bottom: 0;
   display: flex;
   overflow: hidden;
 }
@@ -843,6 +843,7 @@ html, body {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+  padding-bottom: calc(var(--bottom-h) + 20px);
   background: var(--surface-dark);
   position: relative;
 }
@@ -1310,10 +1311,11 @@ textarea.param-input {
 /* ── Bottom panel ────────────────────────────────────────────────────────────── */
 #bottom-panel {
   position: fixed;
-  bottom: 0; left: 0; right: 0;
+  bottom: 0; left: var(--sidebar-w); right: 0;
   height: var(--bottom-h);
   background: var(--terminal-black);
   border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   z-index: 50;
