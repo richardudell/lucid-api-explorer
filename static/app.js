@@ -500,6 +500,9 @@ const mcpPromptInput    = $('#mcp-prompt-input');
 const btnMcpSubmit      = $('#btn-mcp-submit');
 const mcpResponseViewer = $('#mcp-response-viewer');
 const mcpResponseContent = $('#mcp-response-content');
+const mcpAuthBanner     = $('#mcp-auth-banner');
+// Note: btn-mcp-how, btn-mcp-connect, btn-mcp-reconnect are wired via
+// event delegation on mcpAuthBanner — never grabbed as top-level consts.
 
 // Bottom panel
 const panelTabs     = $$('.panel-tab');
@@ -541,6 +544,20 @@ function updateAuthUI(status) {
   authDot.className = 'status-dot ' + (allOk ? 'dot-authenticated' : anyOk ? 'dot-partial' : 'dot-unauthenticated');
   authLabel.textContent = allOk ? 'Authenticated' : anyOk ? 'Partially authenticated' : 'Not authenticated';
 
+  // Toggle MCP banner between disconnected/connected states.
+  // We NEVER rebuild innerHTML — both state divs are permanently in the DOM.
+  // JS only flips .hidden and .auth-banner-connected.
+  if (mcpAuthBanner) {
+    mcpAuthBanner.classList.toggle('auth-banner-connected', mcpOk);
+    $('#mcp-banner-disconnected').classList.toggle('hidden', mcpOk);
+    $('#mcp-banner-connected').classList.toggle('hidden', !mcpOk);
+  }
+  // Enable/disable MCP submit based on auth state
+  if (btnMcpSubmit) {
+    btnMcpSubmit.disabled = !mcpOk;
+    btnMcpSubmit.title = mcpOk ? '' : 'Connect MCP first';
+  }
+
   // Render scope tags for user token
   scopeTagsEl.innerHTML = '';
   if (restOk && status.rest.scopes.length) {
@@ -570,6 +587,8 @@ async function handleOAuthRedirect() {
   const error          = params.get('auth_error');
   const accountSuccess = params.get('account_auth_success');
   const accountError   = params.get('account_auth_error');
+  const mcpSuccess     = params.get('mcp_auth_success');
+  const mcpError       = params.get('mcp_auth_error');
 
   // Always clean the URL immediately
   window.history.replaceState({}, '', '/');
@@ -586,6 +605,30 @@ async function handleOAuthRedirect() {
     await renderAccountOAuthFlowInTerminal();
     btnViewFlows.classList.remove('hidden');
     await openAuthModalViewer('account');
+  }
+
+  if (mcpSuccess || mcpError) {
+    // Navigate to MCP workspace and show result in terminal
+    showWorkspace('mcp');
+    switchTab('terminal');
+    terminalOutput.innerHTML = '';
+    if (mcpSuccess) {
+      const ts = () => new Date().toLocaleTimeString();
+      addTerminalSection('── MCP: OAuth 2.0 + Dynamic Client Registration ─────────────');
+      addTerminalLine(ts(), '① POST /oauth/register → client_id + client_secret issued', 'ok');
+      addTerminalLine('',   '   No Developer Portal setup required — server registered itself automatically', 'out');
+      addTerminalLine(ts(), '② Authorization URL built with PKCE code_challenge', 'ok');
+      addTerminalLine(ts(), '③ Browser redirected → user approved on Lucid consent screen', 'ok');
+      addTerminalLine(ts(), '④ /mcp/callback received ?code= — CSRF state validated', 'ok');
+      addTerminalLine(ts(), '⑤ POST /oauth2/token — server exchanged code + verifier for access token', 'ok');
+      addTerminalLine('',   '   Token stored in server memory only. Session active. ✓', 'ok');
+    } else {
+      addTerminalSection('── MCP AUTH ERROR ───────────────────────────────────────────');
+      addTerminalLine(new Date().toLocaleTimeString(), `✗ MCP auth failed: ${mcpError}`, 'err');
+      addTerminalLine('', '  Try connecting again via the "Connect MCP →" button.', 'out');
+    }
+    // Refresh auth status so the banner updates
+    await pollAuthStatus();
   }
 }
 
@@ -1350,6 +1393,251 @@ function closeAuthModal() {
   if (_diagAnimTimer) { clearTimeout(_diagAnimTimer); _diagAnimTimer = null; }
 }
 
+// ── DCR Explainer Modal ────────────────────────────────────────────────────────
+//
+// A self-contained animated explainer for MCP's OAuth + Dynamic Client Registration
+// flow. Five steps, each with an actor animation, callout, and optional payload.
+// Same visual language as the OAuth modal — packet animations, actor highlights.
+
+const DCR_STEPS = [
+  {
+    id: 'dcr-register',
+    title: 'Dynamic Client Registration (DCR)',
+    detail: 'Your server POSTs to the Lucid MCP registration endpoint with client metadata — name and redirect URI. No Developer Portal setup required. Lucid issues a fresh client_id and client_secret on the spot.',
+    actorEffect: { server: 'dcr-active', lucid: null },
+    arrowEffect: { track: 2, dir: 'right', packetClass: 'dcr-pkt-register', label: 'POST /oauth/register' },
+    arrivedActor: 'lucid',
+    arrivedEffect: 'dcr-register',
+    calloutClass: 'dcr-amber',
+    payload: {
+      req: `POST https://mcp.lucid.app/oauth/register\nContent-Type: application/json\n\n{\n  "client_name": "lucid-api-explorer",\n  "redirect_uris": ["http://localhost:8000/mcp/callback"],\n  "grant_types": ["authorization_code", "refresh_token"]\n}`,
+      res: `HTTP 201 Created\n\n{\n  "client_id": "dyn_abc123…",\n  "client_secret": "dyn_secret…",\n  "client_id_issued_at": 1740000000\n}`,
+    },
+  },
+  {
+    id: 'dcr-redirect',
+    title: 'Build Authorization URL & Redirect',
+    detail: 'Using the freshly issued client_id, the server builds a standard OAuth 2.0 authorization URL with PKCE (Proof Key for Code Exchange). The browser is redirected to Lucid\'s consent screen. PKCE adds a code_challenge so even if the auth code is intercepted, it\'s useless without the verifier.',
+    actorEffect: { server: 'dcr-active', lucid: null },
+    arrowEffect: { track: 1, dir: 'left', packetClass: 'dcr-pkt-redirect', label: '302 → Lucid consent' },
+    arrivedActor: 'browser',
+    arrivedEffect: 'dcr-arrived',
+    calloutClass: 'dcr-ok',
+    payload: {
+      req: `GET https://lucid.app/oauth2/authorize\n  ?client_id=dyn_abc123…\n  &redirect_uri=http://localhost:8000/mcp/callback\n  &response_type=code\n  &code_challenge=BASE64URL(SHA256(verifier))\n  &code_challenge_method=S256\n  &scope=…`,
+      res: `302 Found — browser follows redirect\nUser sees Lucid consent screen`,
+    },
+  },
+  {
+    id: 'dcr-consent',
+    title: 'User Grants Consent',
+    detail: 'The engineer clicks "Allow" on Lucid\'s consent screen. Lucid redirects back to /mcp/callback with a one-time authorization code. This code is short-lived (~60s) and single-use — it must be exchanged immediately.',
+    actorEffect: { server: null, lucid: 'dcr-active' },
+    arrowEffect: { track: 2, dir: 'left', packetClass: 'dcr-pkt-code', label: '?code=…' },
+    arrivedActor: 'server',
+    arrivedEffect: 'dcr-arrived',
+    calloutClass: 'dcr-ok',
+    payload: {
+      req: `GET http://localhost:8000/mcp/callback\n  ?code=one_time_auth_code\n  &state=csrf_token`,
+      res: `Server receives code and state\nCSRF check: state matches stored value ✓`,
+    },
+  },
+  {
+    id: 'dcr-exchange',
+    title: 'Token Exchange (server-to-server)',
+    detail: 'The server POSTs the auth code + code_verifier to Lucid\'s token endpoint. This is server-to-server — the dynamic client_secret travels here but never touches the browser. The code_verifier proves this is the same client that initiated the flow (PKCE).',
+    actorEffect: { server: 'dcr-active', lucid: null },
+    arrowEffect: { track: 2, dir: 'right', packetClass: 'dcr-pkt-token', label: 'POST /oauth2/token' },
+    arrivedActor: 'lucid',
+    arrivedEffect: 'dcr-arrived',
+    calloutClass: 'dcr-ok',
+    payload: {
+      req: `POST https://api.lucid.co/oauth2/token\nContent-Type: application/x-www-form-urlencoded\n\ngrant_type=authorization_code\n&code=one_time_auth_code\n&client_id=dyn_abc123…\n&client_secret=dyn_secret…\n&code_verifier=random_verifier`,
+      res: `HTTP 200 OK\n\n{\n  "access_token": "Bearer eyJ…",\n  "expires_in": 3600,\n  "token_type": "Bearer"\n}`,
+    },
+  },
+  {
+    id: 'dcr-use',
+    title: 'Authenticated MCP Requests',
+    detail: 'The access token is stored in server memory. Every MCP prompt is sent via Streamable HTTP with the Bearer token in the Authorization header. The mcp package\'s OAuthClientProvider attaches the token automatically and handles refresh when it expires.',
+    actorEffect: { server: 'dcr-active', lucid: null },
+    arrowEffect: { track: 2, dir: 'right', packetClass: 'dcr-pkt-token', label: 'Streamable HTTP + Bearer' },
+    arrivedActor: 'lucid',
+    arrivedEffect: 'dcr-arrived',
+    calloutClass: 'dcr-ok',
+    payload: {
+      req: `POST https://mcp.lucid.app/mcp\nAuthorization: Bearer eyJ…\nContent-Type: application/json\n\n{ "jsonrpc": "2.0", "method": "tools/call", … }`,
+      res: `HTTP 200 OK\n\n{ "content": [ { "type": "text", "text": "…results…" } ] }`,
+    },
+  },
+];
+
+let _dcrCurrent = 0;
+let _dcrAnimTimer = null;
+let _dcrPayloadOpen = false;
+
+// DOM refs — grabbed lazily when modal opens
+let _dcrActorBrowser, _dcrActorServer, _dcrActorLucid;
+let _dcrPacket1, _dcrPacket2;
+let _dcrBtnPrev, _dcrBtnNext;
+let _dcrCounterEl;
+let _dcrCalloutEl, _dcrBadgeEl, _dcrTitleEl, _dcrDetailEl;
+let _dcrPayloadBtn, _dcrPayloadEl, _dcrPayloadReq, _dcrPayloadRes;
+
+function _grabDcrRefs() {
+  _dcrActorBrowser = $('#dcr-actor-browser');
+  _dcrActorServer  = $('#dcr-actor-server');
+  _dcrActorLucid   = $('#dcr-actor-lucid');
+  _dcrPacket1      = $('#dcr-packet-1');
+  _dcrPacket2      = $('#dcr-packet-2');
+  _dcrBtnPrev      = $('#btn-dcr-prev');
+  _dcrBtnNext      = $('#btn-dcr-next');
+  _dcrCounterEl    = $('#dcr-step-counter');
+  _dcrCalloutEl    = $('#dcr-callout');
+  _dcrBadgeEl      = $('#dcr-callout-badge');
+  _dcrTitleEl      = $('#dcr-callout-title');
+  _dcrDetailEl     = $('#dcr-callout-detail');
+  _dcrPayloadBtn   = $('#btn-dcr-payload');
+  _dcrPayloadEl    = $('#dcr-payload');
+  _dcrPayloadReq   = $('#dcr-payload-req');
+  _dcrPayloadRes   = $('#dcr-payload-res');
+}
+
+function openDcrModal() {
+  _grabDcrRefs();
+  _dcrCurrent    = 0;
+  _dcrPayloadOpen = false;
+
+  // Reset actors
+  [_dcrActorBrowser, _dcrActorServer, _dcrActorLucid].forEach(a => {
+    a.className = 'dcr-actor';
+    a.querySelector('.dcr-actor-icon').style.removeProperty('border-color');
+  });
+
+  // Reset packets
+  [_dcrPacket1, _dcrPacket2].forEach(p => {
+    p.className = 'dcr-packet';
+    p.textContent = '';
+    p.style.transition = 'none';
+    p.style.left = '0%';
+  });
+
+  // Wire nav buttons (clone to remove old listeners)
+  const newPrev = _dcrBtnPrev.cloneNode(true);
+  const newNext = _dcrBtnNext.cloneNode(true);
+  _dcrBtnPrev.replaceWith(newPrev); _dcrBtnPrev = newPrev;
+  _dcrBtnNext.replaceWith(newNext); _dcrBtnNext = newNext;
+  _dcrBtnPrev.addEventListener('click', () => { if (_dcrCurrent > 0) _dcrRenderStep(_dcrCurrent - 1); });
+  _dcrBtnNext.addEventListener('click', () => { if (_dcrCurrent < DCR_STEPS.length - 1) _dcrRenderStep(_dcrCurrent + 1); });
+
+  // Wire payload toggle
+  const newToggle = _dcrPayloadBtn.cloneNode(true);
+  _dcrPayloadBtn.replaceWith(newToggle); _dcrPayloadBtn = newToggle;
+  _dcrPayloadBtn.addEventListener('click', () => {
+    _dcrPayloadOpen = !_dcrPayloadOpen;
+    _dcrPayloadEl.classList.toggle('hidden', !_dcrPayloadOpen);
+    _dcrPayloadBtn.textContent = _dcrPayloadOpen ? 'Hide payload ▴' : 'Show payload ▾';
+  });
+
+  _dcrPayloadEl.classList.add('hidden');
+  _dcrPayloadBtn.textContent = 'Show payload ▾';
+
+  $('#dcr-modal-overlay').classList.remove('hidden');
+  _dcrRenderStep(0);
+}
+
+function closeDcrModal() {
+  $('#dcr-modal-overlay').classList.add('hidden');
+  if (_dcrAnimTimer) { clearTimeout(_dcrAnimTimer); _dcrAnimTimer = null; }
+}
+
+function _actorRefForId(id) {
+  if (id === 'browser') return _dcrActorBrowser;
+  if (id === 'server')  return _dcrActorServer;
+  if (id === 'lucid')   return _dcrActorLucid;
+  return null;
+}
+
+function _dcrRenderStep(idx) {
+  _dcrCurrent = idx;
+  const step  = DCR_STEPS[idx];
+  const total = DCR_STEPS.length;
+
+  // Counter + nav
+  _dcrCounterEl.textContent = `Step ${idx + 1} of ${total}`;
+  _dcrBtnPrev.disabled = (idx === 0);
+  _dcrBtnNext.disabled = (idx === total - 1);
+
+  // Clear actor states
+  [_dcrActorBrowser, _dcrActorServer, _dcrActorLucid].forEach(a => {
+    a.className = 'dcr-actor';
+  });
+
+  // Hide packets immediately (suppress transition)
+  [_dcrPacket1, _dcrPacket2].forEach(p => {
+    p.className = 'dcr-packet';
+    p.textContent = '';
+    p.style.transition = 'none';
+    p.style.left = step.arrowEffect?.dir === 'right' ? '0%' : '92%';
+  });
+
+  if (_dcrAnimTimer) { clearTimeout(_dcrAnimTimer); _dcrAnimTimer = null; }
+
+  // Apply actor start state
+  if (step.actorEffect?.server) _dcrActorServer.classList.add(step.actorEffect.server);
+  if (step.actorEffect?.lucid)  _dcrActorLucid.classList.add(step.actorEffect.lucid);
+
+  // Animate packet
+  const ae = step.arrowEffect;
+  if (ae) {
+    const packet = ae.track === 1 ? _dcrPacket1 : _dcrPacket2;
+    const startPct = ae.dir === 'right' ? '0%' : '92%';
+    const endPct   = ae.dir === 'right' ? '88%' : '4%';
+
+    packet.textContent = ae.label;
+    packet.classList.add(ae.packetClass);
+    packet.style.transition = 'none';
+    packet.style.left = startPct;
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      packet.style.transition = 'left 0.65s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease';
+      packet.classList.add('dcr-packet-visible');
+      packet.style.left = endPct;
+
+      _dcrAnimTimer = setTimeout(() => {
+        if (step.actorEffect?.server) _dcrActorServer.classList.remove(step.actorEffect.server);
+        const arrivedRef = _actorRefForId(step.arrivedActor);
+        if (arrivedRef && step.arrivedEffect) arrivedRef.classList.add(step.arrivedEffect);
+        _dcrCalloutEl.className = step.calloutClass || '';
+      }, 680);
+    }));
+  } else {
+    // Internal step — pulse server
+    _dcrActorServer.classList.add('dcr-pulse');
+    _dcrCalloutEl.className = step.calloutClass || 'dcr-pending';
+  }
+
+  // Callout text
+  _dcrBadgeEl.textContent  = `STEP ${idx + 1}`;
+  _dcrTitleEl.textContent  = step.title;
+  _dcrDetailEl.textContent = step.detail;
+
+  // Payload
+  if (step.payload) {
+    _dcrPayloadBtn.classList.remove('hidden');
+    _dcrPayloadReq.textContent = step.payload.req;
+    _dcrPayloadRes.textContent = step.payload.res;
+  } else {
+    _dcrPayloadBtn.classList.add('hidden');
+  }
+  // Collapse payload on step change
+  _dcrPayloadOpen = false;
+  _dcrPayloadEl.classList.add('hidden');
+  _dcrPayloadBtn.textContent = 'Show payload ▾';
+}
+
+// MCP button wiring is done inside init() below — see that function.
+
 // ── Button wiring ──────────────────────────────────────────────────────────────
 
 // startAuthFlow: opens scope selector (no longer auto-redirects)
@@ -2103,6 +2391,45 @@ async function submitFollowup() {
 
 // ── MCP workspace ──────────────────────────────────────────────────────────────
 
+// Called from the banner delegation listener and the DCR modal connect button.
+// Accepts either a real click Event or a synthetic { currentTarget: el } object.
+async function _mcpConnectHandler(e) {
+  const btn = e.currentTarget || $('#btn-mcp-connect');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Connecting...';
+
+  try {
+    // GET /auth/mcp — backend runs DCR, returns the Lucid authorization URL
+    const res = await fetch('/auth/mcp');
+    const data = await res.json();
+
+    if (data.auth_url) {
+      // Show DCR step 1+2 in the terminal before the redirect
+      switchTab('terminal');
+      terminalOutput.innerHTML = '';
+      addTerminalSection('── MCP: OAuth 2.0 + Dynamic Client Registration ─────────────');
+      addTerminalLine(new Date().toLocaleTimeString(), '① POST /oauth/register — Lucid issued fresh client_id + client_secret', 'ok');
+      addTerminalLine('', '   No Developer Portal setup required. Credentials valid for this session only.', 'out');
+      addTerminalLine(new Date().toLocaleTimeString(), '② Redirecting browser to Lucid consent screen (PKCE flow)…', 'out');
+      addTerminalLine('', `   ${data.auth_url.substring(0, 90)}…`, 'out');
+
+      // Brief pause so the terminal is visible before redirect
+      await new Promise(r => setTimeout(r, 900));
+      window.location.href = data.auth_url;
+    } else {
+      appendTerminalMessage(`MCP auth failed: ${data.error || 'No auth URL returned — check server logs'}`, 'err');
+      btn.disabled = false;
+      btn.textContent = 'Connect MCP →';
+    }
+  } catch (err) {
+    appendTerminalMessage(`MCP connect error: ${err.message}`, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Connect MCP →';
+  }
+}
+
+// btn-mcp-connect is handled by mcpAuthBanner delegation above.
+
 btnMcpSubmit.addEventListener('click', async () => {
   const prompt = mcpPromptInput.value.trim();
   if (!prompt) return;
@@ -2385,6 +2712,36 @@ function init() {
   setInterval(pollAuthStatus, 15000); // Poll every 15s to keep status fresh
   // handleOAuthRedirect last — it may open the modal which reads DOM state
   handleOAuthRedirect();
+
+  // ── MCP button wiring ────────────────────────────────────────────────────────
+  // Must live inside init() so it runs after DOMContentLoaded — the same pattern
+  // used by every other button in this file. Top-level addEventListener calls
+  // run at parse time and can silently halt the JS engine if any $() returns null.
+
+  // DCR modal close/overlay buttons
+  $('#dcr-modal-close').addEventListener('click', closeDcrModal);
+  $('#btn-dcr-close').addEventListener('click', closeDcrModal);
+  $('#dcr-modal-overlay').addEventListener('click', (e) => {
+    if (e.target === $('#dcr-modal-overlay')) closeDcrModal();
+  });
+  // "Connect MCP now →" button inside the DCR modal
+  $('#btn-dcr-connect').addEventListener('click', () => {
+    closeDcrModal();
+    _mcpConnectHandler({ currentTarget: $('#btn-mcp-connect') });
+  });
+
+  // Event delegation on the banner container.
+  // Catches btn-mcp-how, btn-mcp-connect, and btn-mcp-reconnect with one listener.
+  // Delegation means we never need to re-attach listeners as banner state toggles.
+  mcpAuthBanner.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.id === 'btn-mcp-how') {
+      openDcrModal();
+    } else if (btn.id === 'btn-mcp-connect' || btn.id === 'btn-mcp-reconnect') {
+      _mcpConnectHandler({ currentTarget: btn });
+    }
+  });
 }
 
 document.addEventListener('DOMContentLoaded', init);

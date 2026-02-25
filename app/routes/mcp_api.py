@@ -12,7 +12,7 @@ The /mcp/callback endpoint is separate from /callback (REST OAuth) — MCP uses 
 own redirect URI (http://localhost:8000/mcp/callback) to keep the flows distinct.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -54,7 +54,7 @@ async def auth_mcp() -> JSONResponse:
 @router.get("/mcp/callback", summary="MCP OAuth callback — complete auth handshake")
 async def mcp_callback(
     code: str | None = None,
-    state_param: str | None = None,  # named state_param to avoid shadowing app_state import
+    state_param: str | None = Query(default=None, alias="state"),  # alias maps ?state= to state_param
     error: str | None = None,
     error_description: str | None = None,
 ) -> RedirectResponse:
