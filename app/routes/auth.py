@@ -1,30 +1,39 @@
 """
 app/routes/auth.py — OAuth 2.0 Authorization Code Flow for the Lucid REST API.
 
-Two endpoints drive the flow:
+Two endpoints drive each flow:
 
-  GET /auth/lucid   — Step 1: redirect the browser to Lucid's authorization URL.
-                      A random `state` param is stored in app.state to prevent CSRF.
+  User token flow:
+    GET /auth/lucid   — Step 1: redirect the browser to Lucid's user authorization URL.
+    GET /callback     — Step 2: receive code, exchange for user access token.
 
-  GET /callback     — Step 2: Lucid redirects here with ?code=... after user consent.
-                      We exchange the code for an access token (server-to-server POST),
-                      store the token in app.state, then redirect back to the app UI.
+  Account token flow (identical logic, different credentials and state slots):
+    GET /auth/lucid-account  — Step 1: redirect to Lucid's account authorization URL.
+    GET /callback-account    — Step 2: receive code, exchange for account access token.
 
 Additional endpoints:
 
-  GET /auth/status      — Returns current auth state for all three surfaces (REST/SCIM/MCP).
-  GET /auth/flow-status — Returns the full step-by-step OAuth flow log with request/response
-                          details so the frontend can render a complete educational timeline.
-  POST /auth/logout     — Clears REST token state so the engineer can re-authenticate.
+  GET /auth/status             — Returns current auth state for all three surfaces.
+  GET /auth/flow-status        — Full step-by-step user OAuth flow log.
+  GET /auth/account-flow-status — Full step-by-step account OAuth flow log.
+  POST /auth/logout            — Clears REST token state so the engineer can re-authenticate.
+
+Implementation note — deduplication:
+  Both flows are structurally identical (same 5 steps, same CSRF/TTL logic, same
+  token exchange). They differ only in which state fields, auth URL, redirect URI,
+  and default scopes they use. We capture those differences in OAuthFlowConfig and
+  run both flows through shared _run_oauth_initiate() / _run_oauth_callback() helpers.
 """
 
 import secrets
 import httpx
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Callable
 from urllib.parse import urlencode, quote as urlquote
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 
 import app.state as state
@@ -39,29 +48,25 @@ from app.config import (
     LUCID_ACCOUNT_REDIRECT_URI,
     LUCID_TOKEN_URL,
     LUCID_SCIM_TOKEN,
+    LUCID_OAUTH_CONFIGURED,
+    SCIM_CONFIGURED,
 )
 
 router = APIRouter()
 
+# ── OAuth state token TTL ─────────────────────────────────────────────────────
+_OAUTH_STATE_TTL = 600  # seconds (10 minutes) — reject callbacks older than this
+
 # ── Flow logs ─────────────────────────────────────────────────────────────────
-# Separate logs for user token and account token flows.
+# Separate lists for user and account flows.
 # The frontend fetches these via /auth/flow-status and /auth/account-flow-status.
 
 _oauth_flow_log: list[dict] = []
 _account_oauth_flow_log: list[dict] = []
 
 
-def _reset_flow_log() -> None:
-    global _oauth_flow_log
-    _oauth_flow_log = []
-
-
-def _reset_account_flow_log() -> None:
-    global _account_oauth_flow_log
-    _account_oauth_flow_log = []
-
-
-def _log_step(
+def _append_step(
+    log_list: list[dict],
     step: int,
     label: str,
     detail: str,
@@ -69,8 +74,8 @@ def _log_step(
     request: dict | None = None,   # {method, url, headers, body} — what we sent
     response: dict | None = None,  # {status_code, body} — what we received
 ) -> None:
-    """Append a richly-detailed step to the OAuth flow log."""
-    _oauth_flow_log.append({
+    """Append a richly-detailed step to an OAuth flow log list."""
+    log_list.append({
         "step": step,
         "label": label,
         "detail": detail,
@@ -80,28 +85,101 @@ def _log_step(
     })
 
 
-# ── Step 1 — Initiate the OAuth flow ─────────────────────────────────────────
+# ── OAuthFlowConfig — captures what differs between the two flows ─────────────
 
-@router.get("/auth/lucid", summary="Initiate Lucid REST API OAuth flow")
-async def auth_lucid(scopes: str | None = None) -> RedirectResponse:
+@dataclass
+class OAuthFlowConfig:
     """
-    Redirect the browser to Lucid's authorization URL.
-
-    Generates a cryptographically random `state` value and stores it in
-    app.state.rest_oauth_state. Lucid will echo it back on the callback so
-    we can verify the request wasn't forged (CSRF protection).
-
-    Args:
-        scopes: Optional space-separated scope string from the UI scope selector.
-                If not provided, falls back to LUCID_OAUTH_SCOPES from .env.
+    Encapsulates all the parameters that differ between the user OAuth flow and
+    the account OAuth flow. Pass one of the two pre-built instances to the shared
+    _run_oauth_initiate() and _run_oauth_callback() helpers.
     """
-    _reset_flow_log()
+    flow_name: str                # "user" or "account" — used in log messages
+    auth_url: str                 # Lucid authorization endpoint
+    redirect_uri: str             # Registered callback URL
+    default_scopes: list[str]     # From config; overridden by UI scope selector
+    log_list: list[dict]          # Reference to the module-level log list to append to
+    store_token: Callable[[dict], None]       # Writes token fields into app.state
+    get_oauth_state: Callable[[], str | None] # Reads current CSRF state from app.state
+    set_oauth_state: Callable[[str | None], None]  # Writes CSRF state into app.state
+    get_oauth_state_created_at: Callable[[], datetime | None]  # Reads TTL timestamp
+    set_oauth_state_created_at: Callable[[datetime | None], None]  # Writes TTL timestamp
+    success_redirect: str         # URL to redirect to on success (e.g. "/?auth_success=true")
+    error_prefix: str             # Query param prefix for error redirects (e.g. "auth_error")
 
-    # ── Step 1: Generate CSRF state token ────────────────────────────────────
+
+# ── Pre-built configs for each flow ───────────────────────────────────────────
+
+def _user_flow_config() -> OAuthFlowConfig:
+    return OAuthFlowConfig(
+        flow_name="user",
+        auth_url=LUCID_AUTH_URL,
+        redirect_uri=LUCID_REDIRECT_URI,
+        default_scopes=list(LUCID_OAUTH_SCOPES),
+        log_list=_oauth_flow_log,
+        store_token=_store_rest_token,
+        get_oauth_state=lambda: state.rest_oauth_state,
+        set_oauth_state=lambda v: setattr(state, "rest_oauth_state", v),
+        get_oauth_state_created_at=lambda: state.rest_oauth_state_created_at,
+        set_oauth_state_created_at=lambda v: setattr(state, "rest_oauth_state_created_at", v),
+        success_redirect="/?auth_success=true",
+        error_prefix="auth_error",
+    )
+
+
+def _account_flow_config() -> OAuthFlowConfig:
+    return OAuthFlowConfig(
+        flow_name="account",
+        auth_url=LUCID_ACCOUNT_AUTH_URL,
+        redirect_uri=LUCID_ACCOUNT_REDIRECT_URI,
+        default_scopes=list(LUCID_ACCOUNT_OAUTH_SCOPES),
+        log_list=_account_oauth_flow_log,
+        store_token=_store_rest_account_token,
+        get_oauth_state=lambda: state.rest_account_oauth_state,
+        set_oauth_state=lambda v: setattr(state, "rest_account_oauth_state", v),
+        get_oauth_state_created_at=lambda: state.rest_account_oauth_state_created_at,
+        set_oauth_state_created_at=lambda v: setattr(state, "rest_account_oauth_state_created_at", v),
+        success_redirect="/?account_auth_success=true",
+        error_prefix="account_auth_error",
+    )
+
+
+# ── Shared OAuth flow logic ───────────────────────────────────────────────────
+
+def _run_oauth_initiate(cfg: OAuthFlowConfig, scopes: str | None) -> RedirectResponse:
+    """
+    Step 1 of the OAuth flow: generate a CSRF state token and build the
+    authorization URL. Identical for user and account flows — cfg supplies
+    the flow-specific values.
+    """
+    # Reset the log for a fresh flow
+    cfg.log_list.clear()
+
+    # Fast-fail with a clear UX error instead of sending users into a broken
+    # redirect when OAuth client config is missing.
+    if not LUCID_OAUTH_CONFIGURED:
+        _append_step(
+            cfg.log_list,
+            step=1,
+            label="OAuth config missing",
+            detail=(
+                "OAuth client settings are not configured. Set LUCID_CLIENT_ID, "
+                "LUCID_CLIENT_SECRET, LUCID_REDIRECT_URI, and "
+                "LUCID_ACCOUNT_REDIRECT_URI in .env, then restart the app."
+            ),
+            status="error",
+            request=None,
+            response={"error": "oauth_config_missing"},
+        )
+        return RedirectResponse(url=f"/?{cfg.error_prefix}=oauth_config_missing")
+
+    # Generate CSRF state token and record its timestamp for TTL enforcement
     oauth_state = secrets.token_urlsafe(32)
-    state.rest_oauth_state = oauth_state
+    cfg.set_oauth_state(oauth_state)
+    cfg.set_oauth_state_created_at(datetime.utcnow())
 
-    _log_step(
+    _append_step(
+        cfg.log_list,
         step=1,
         label="State token generated",
         detail=(
@@ -114,34 +192,31 @@ async def auth_lucid(scopes: str | None = None) -> RedirectResponse:
         response={"state_token": oauth_state[:8] + "••••••••  (truncated for display)"},
     )
 
-    # ── Step 2: Build the authorization URL ───────────────────────────────────
-    # Use UI-selected scopes if provided; fall back to .env defaults.
-    # Scopes must be space-separated (RFC 6749 §3.3).
-    # We encode all params except scope with urlencode(), then append scope
-    # separately so spaces become %20 — some servers reject + encoding.
+    # Build the authorization URL
     if scopes:
         scope_list = [s.strip() for s in scopes.split() if s.strip()]
     else:
-        scope_list = list(LUCID_OAUTH_SCOPES)
+        scope_list = cfg.default_scopes
     scope_str = " ".join(scope_list)
 
     base_params = urlencode({
         "client_id": LUCID_CLIENT_ID,
-        "redirect_uri": LUCID_REDIRECT_URI,
+        "redirect_uri": cfg.redirect_uri,
         "response_type": "code",
         "state": oauth_state,
     })
     scope_param = "scope=" + urlquote(scope_str, safe=":")
-    authorization_url = f"{LUCID_AUTH_URL}?{base_params}&{scope_param}"
+    authorization_url = f"{cfg.auth_url}?{base_params}&{scope_param}"
 
-    _log_step(
+    _append_step(
+        cfg.log_list,
         step=2,
         label="Authorization URL constructed",
         detail=(
-            f"The browser will be redirected to Lucid's authorization endpoint. "
+            f"The browser will be redirected to Lucid's {cfg.flow_name} authorization endpoint. "
             f"Scopes requested: {scope_str}. "
-            f"response_type=code tells Lucid we want an Authorization Code, not an implicit token. "
-            f"The redirect_uri must match exactly what is registered in the Developer Portal."
+            "response_type=code tells Lucid we want an Authorization Code, not an implicit token. "
+            "The redirect_uri must match exactly what is registered in the Developer Portal."
         ),
         status="pending",
         request={
@@ -149,7 +224,7 @@ async def auth_lucid(scopes: str | None = None) -> RedirectResponse:
             "url": authorization_url,
             "params": {
                 "client_id": LUCID_CLIENT_ID,
-                "redirect_uri": LUCID_REDIRECT_URI,
+                "redirect_uri": cfg.redirect_uri,
                 "response_type": "code",
                 "scope": scope_str,
                 "state": oauth_state[:8] + "•••• (truncated)",
@@ -161,30 +236,24 @@ async def auth_lucid(scopes: str | None = None) -> RedirectResponse:
     return RedirectResponse(url=authorization_url)
 
 
-# ── Step 2 — Receive the authorization code and exchange for a token ──────────
-
-@router.get("/callback", summary="OAuth callback — exchange code for access token")
-async def oauth_callback(
-    code: str | None = None,
-    state_param: str | None = Query(default=None, alias="state"),
-    error: str | None = None,
-    error_description: str | None = None,
+async def _run_oauth_callback(
+    cfg: OAuthFlowConfig,
+    code: str | None,
+    state_param: str | None,
+    error: str | None,
+    error_description: str | None,
 ) -> RedirectResponse:
     """
-    Lucid redirects here after the user grants (or denies) consent.
-
-    On success:
-      1. Validate the `state` param (CSRF check).
-      2. POST to Lucid's token endpoint — server-to-server, client_secret stays backend-only.
-      3. Store the access token in app.state.
-      4. Redirect back to / with auth_success=true.
-
-    On failure:
-      Redirect to / with auth_error=<reason>.
+    Steps 3–5 of the OAuth flow: validate state, exchange code for token, store token.
+    Identical for user and account flows — cfg supplies the flow-specific values.
     """
-    # ── Handle explicit OAuth errors from Lucid ───────────────────────────────
+    def err_redirect(reason: str) -> RedirectResponse:
+        return RedirectResponse(url=f"/?{cfg.error_prefix}={urlquote(reason)}")
+
+    # Step 3a: Handle explicit OAuth errors from Lucid
     if error:
-        _log_step(
+        _append_step(
+            cfg.log_list,
             step=3,
             label=f"Lucid returned an error: {error}",
             detail=_explain_oauth_error(error, error_description),
@@ -192,30 +261,32 @@ async def oauth_callback(
             request=None,
             response={"error": error, "error_description": error_description or ""},
         )
-        return RedirectResponse(url=f"/?auth_error={urlquote(error)}")
+        return err_redirect(error)
 
-    # ── No code returned ──────────────────────────────────────────────────────
+    # Step 3b: No code returned
     if not code:
-        _log_step(
+        _append_step(
+            cfg.log_list,
             step=3,
             label="No authorization code received",
             detail=(
-                "Lucid redirected back to /callback without a code parameter. "
+                f"Lucid redirected back to the {cfg.flow_name} callback without a code parameter. "
                 "This usually means the user denied consent, or the redirect_uri "
-                "registered in the Developer Portal doesn't match LUCID_REDIRECT_URI in .env."
+                "registered in the Developer Portal doesn't match the one in .env."
             ),
             status="error",
             request=None,
             response={"error": "no_code", "raw_params": {"state": state_param}},
         )
-        return RedirectResponse(url="/?auth_error=no_code_returned")
+        return err_redirect("no_code_returned")
 
-    # ── Step 3: Authorization code received ───────────────────────────────────
-    _log_step(
+    # Step 3c: Code received
+    _append_step(
+        cfg.log_list,
         step=3,
         label="Authorization code received",
         detail=(
-            "Lucid redirected back to /callback with a one-time authorization code. "
+            f"Lucid redirected back to the {cfg.flow_name} callback with a one-time authorization code. "
             "This code is short-lived (typically 60s) and can only be used once. "
             "It must be exchanged for an access token before it expires."
         ),
@@ -227,25 +298,49 @@ async def oauth_callback(
         },
     )
 
-    # ── Step 4: Validate state (CSRF check) ───────────────────────────────────
-    if state_param != state.rest_oauth_state:
-        _log_step(
+    # Step 4a: Reject stale CSRF state tokens (> 10 minutes old)
+    created_at = cfg.get_oauth_state_created_at()
+    if created_at is not None:
+        age = (datetime.utcnow() - created_at).total_seconds()
+        if age > _OAUTH_STATE_TTL:
+            cfg.set_oauth_state(None)
+            cfg.set_oauth_state_created_at(None)
+            _append_step(
+                cfg.log_list,
+                step=4,
+                label="State token expired — request rejected",
+                detail=(
+                    f"The OAuth state token was generated {int(age)}s ago, "
+                    f"which exceeds the {_OAUTH_STATE_TTL}s TTL. "
+                    "Start a new OAuth flow to re-authenticate."
+                ),
+                status="error",
+                request=None,
+                response={"error": "state_expired"},
+            )
+            return err_redirect("state_expired")
+
+    # Step 4b: CSRF state comparison
+    if state_param != cfg.get_oauth_state():
+        _append_step(
+            cfg.log_list,
             step=4,
             label="State mismatch — request rejected",
             detail=(
                 "The state parameter returned by Lucid does not match what was stored "
                 "when the flow was initiated. This can happen if the server restarted "
                 "mid-flow (wiping in-memory state) or if the request was forged. "
-                f"Expected: {str(state.rest_oauth_state)[:8] if state.rest_oauth_state else 'None (server restarted)'} "
+                f"Expected: {str(cfg.get_oauth_state())[:8] if cfg.get_oauth_state() else 'None (server restarted)'} "
                 f"Received: {str(state_param)[:8] if state_param else 'None'}"
             ),
             status="error",
             request=None,
             response={"error": "state_mismatch"},
         )
-        return RedirectResponse(url="/?auth_error=state_mismatch")
+        return err_redirect("state_mismatch")
 
-    _log_step(
+    _append_step(
+        cfg.log_list,
         step=4,
         label="State token validated — CSRF check passed",
         detail=(
@@ -258,18 +353,17 @@ async def oauth_callback(
         response={"csrf_check": "passed"},
     )
 
-    # ── Step 5: Exchange authorization code for access token ──────────────────
-    # Build the token request body. This is a server-to-server POST — the
-    # client_secret is included here but never sent to the browser.
+    # Step 5: Exchange authorization code for access token (server-to-server)
     token_request_body = {
         "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri": LUCID_REDIRECT_URI,
+        "redirect_uri": cfg.redirect_uri,
         "client_id": LUCID_CLIENT_ID,
         "client_secret": LUCID_CLIENT_SECRET,
     }
 
-    _log_step(
+    _append_step(
+        cfg.log_list,
         step=5,
         label="Token request — POST to Lucid token endpoint",
         detail=(
@@ -289,7 +383,7 @@ async def oauth_callback(
             "body": {
                 "grant_type": "authorization_code",
                 "code": code[:8] + "•••• (truncated)",
-                "redirect_uri": LUCID_REDIRECT_URI,
+                "redirect_uri": cfg.redirect_uri,
                 "client_id": LUCID_CLIENT_ID,
                 "client_secret": "••••••••••••  (never sent to browser)",
             },
@@ -300,49 +394,85 @@ async def oauth_callback(
     token_data, raw_response = await _exchange_code_for_token(token_request_body)
 
     if token_data is None:
-        _log_step(
+        _append_step(
+            cfg.log_list,
             step=5,
             label="Token exchange failed",
             detail=(
                 "The POST to Lucid's token endpoint failed. "
-                "Check that LUCID_CLIENT_ID, LUCID_CLIENT_SECRET, and LUCID_REDIRECT_URI "
+                "Check that LUCID_CLIENT_ID, LUCID_CLIENT_SECRET, and the redirect_uri "
                 "in .env exactly match what is registered in the Lucid Developer Portal."
             ),
             status="error",
             request=None,
             response=raw_response or {"error": "token_exchange_failed"},
         )
-        return RedirectResponse(url="/?auth_error=token_exchange_failed")
+        return err_redirect("token_exchange_failed")
 
-    # ── Store the token and log success ───────────────────────────────────────
-    _store_rest_token(token_data)
-    scopes_granted = " ".join(state.rest_token_scopes) or "unknown"
+    # Store the token and log success
+    cfg.store_token(token_data)
+    scopes_granted = " ".join(
+        state.rest_token_scopes if cfg.flow_name == "user" else state.rest_account_token_scopes
+    ) or "unknown"
 
-    # Build a display-safe version of the token response (redact the token itself)
     display_token_response = dict(token_data)
     if "access_token" in display_token_response:
-        raw_token = display_token_response["access_token"]
-        display_token_response["access_token"] = raw_token[:8] + "•••• (stored in server memory only)"
+        raw_tok = display_token_response["access_token"]
+        display_token_response["access_token"] = raw_tok[:8] + "•••• (stored in server memory only)"
 
-    _log_step(
+    _append_step(
+        cfg.log_list,
         step=5,
-        label="Access token acquired",
+        label=f"{'Account token' if cfg.flow_name == 'account' else 'Access token'} acquired",
         detail=(
             f"Token stored in server memory. "
             f"Scopes granted: {scopes_granted}. "
             f"Expires in: {token_data.get('expires_in', 'unknown')}s. "
             f"Token type: {token_data.get('token_type', 'Bearer')}. "
-            f"Nothing written to disk — token is lost on server restart."
+            "Nothing written to disk — token is lost on server restart."
         ),
         status="ok",
         request=None,
         response=display_token_response,
     )
 
-    # Clear the one-time oauth state now that the flow is complete
-    state.rest_oauth_state = None
+    # Clear the one-time OAuth state now that the flow is complete
+    cfg.set_oauth_state(None)
+    cfg.set_oauth_state_created_at(None)
 
-    return RedirectResponse(url="/?auth_success=true")
+    return RedirectResponse(url=cfg.success_redirect)
+
+
+# ── Route handlers — thin wrappers around the shared flow helpers ─────────────
+
+@router.get("/auth/lucid", summary="Initiate Lucid REST API OAuth flow")
+async def auth_lucid(scopes: str | None = None) -> RedirectResponse:
+    """
+    Redirect the browser to Lucid's authorization URL (user token flow).
+
+    Generates a cryptographically random `state` value (CSRF protection)
+    and redirects the user to Lucid's consent screen. On approval, Lucid
+    redirects back to /callback.
+
+    Args:
+        scopes: Optional space-separated scope string from the UI scope selector.
+                If not provided, falls back to LUCID_OAUTH_SCOPES from .env.
+    """
+    return _run_oauth_initiate(_user_flow_config(), scopes)
+
+
+@router.get("/callback", summary="OAuth callback — exchange code for user access token")
+async def oauth_callback(
+    code: str | None = None,
+    state_param: str | None = Query(default=None, alias="state"),
+    error: str | None = None,
+    error_description: str | None = None,
+) -> RedirectResponse:
+    """
+    Lucid redirects here after the user grants (or denies) consent (user token flow).
+    Validates state, exchanges the code for an access token, stores it in memory.
+    """
+    return await _run_oauth_callback(_user_flow_config(), code, state_param, error, error_description)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -412,25 +542,6 @@ async def _exchange_code_for_token(payload: dict) -> tuple[dict | None, dict | N
         return None, {"error": str(exc)}
 
 
-def _log_account_step(
-    step: int,
-    label: str,
-    detail: str,
-    status: str,
-    request: dict | None = None,
-    response: dict | None = None,
-) -> None:
-    """Append a step to the account OAuth flow log."""
-    _account_oauth_flow_log.append({
-        "step": step,
-        "label": label,
-        "detail": detail,
-        "status": status,
-        "request": request,
-        "response": response,
-    })
-
-
 def _store_rest_token(token_data: dict) -> None:
     """Write the user token response fields into app.state — including refresh token."""
     state.rest_access_token = token_data.get("access_token")
@@ -467,14 +578,12 @@ def _store_rest_account_token(token_data: dict) -> None:
     state.rest_account_token_scopes = raw_scopes.split() if raw_scopes else []
 
 
-# ── Account token OAuth flow ──────────────────────────────────────────────────
-
 @router.get("/auth/lucid-account", summary="Initiate Lucid REST API account token OAuth flow")
 async def auth_lucid_account(scopes: str | None = None) -> RedirectResponse:
     """
-    Redirect the browser to Lucid's account authorization URL.
+    Redirect the browser to Lucid's account authorization URL (account token flow).
 
-    This is identical to the user token flow except it uses
+    This is structurally identical to the user token flow but uses
     https://lucid.app/oauth2/authorizeAccount instead of /authorize.
     The resulting token has account-admin scope, needed for createUser,
     listUsers, and other account-level operations.
@@ -483,65 +592,7 @@ async def auth_lucid_account(scopes: str | None = None) -> RedirectResponse:
         scopes: Optional space-separated scope string from the UI scope selector.
                 If not provided, falls back to LUCID_ACCOUNT_OAUTH_SCOPES from .env.
     """
-    _reset_account_flow_log()
-
-    oauth_state = secrets.token_urlsafe(32)
-    state.rest_account_oauth_state = oauth_state
-
-    _log_account_step(
-        step=1,
-        label="State token generated",
-        detail=(
-            "A cryptographically random value created with secrets.token_urlsafe(32). "
-            "Stored in server memory. Lucid will echo it back on the callback — "
-            "if it doesn't match, we reject the request as a potential CSRF attack."
-        ),
-        status="ok",
-        request=None,
-        response={"state_token": oauth_state[:8] + "••••••••  (truncated for display)"},
-    )
-
-    # Use UI-selected scopes if provided; fall back to .env defaults.
-    if scopes:
-        scope_list = [s.strip() for s in scopes.split() if s.strip()]
-    else:
-        scope_list = list(LUCID_ACCOUNT_OAUTH_SCOPES)
-    scope_str = " ".join(scope_list)
-
-    base_params = urlencode({
-        "client_id": LUCID_CLIENT_ID,
-        "redirect_uri": LUCID_ACCOUNT_REDIRECT_URI,
-        "response_type": "code",
-        "state": oauth_state,
-    })
-    scope_param = "scope=" + urlquote(scope_str, safe=":")
-    authorization_url = f"{LUCID_ACCOUNT_AUTH_URL}?{base_params}&{scope_param}"
-
-    _log_account_step(
-        step=2,
-        label="Authorization URL constructed",
-        detail=(
-            f"The browser will be redirected to Lucid's ACCOUNT authorization endpoint. "
-            f"This URL (oauth2/authorizeAccount) produces an account-level token — "
-            f"required for admin operations like createUser. "
-            f"Scopes requested: {scope_str}."
-        ),
-        status="pending",
-        request={
-            "method": "GET (browser redirect)",
-            "url": authorization_url,
-            "params": {
-                "client_id": LUCID_CLIENT_ID,
-                "redirect_uri": LUCID_ACCOUNT_REDIRECT_URI,
-                "response_type": "code",
-                "scope": scope_str,
-                "state": oauth_state[:8] + "•••• (truncated)",
-            },
-        },
-        response=None,
-    )
-
-    return RedirectResponse(url=authorization_url)
+    return _run_oauth_initiate(_account_flow_config(), scopes)
 
 
 @router.get("/callback-account", summary="Account token OAuth callback")
@@ -552,144 +603,10 @@ async def oauth_account_callback(
     error_description: str | None = None,
 ) -> RedirectResponse:
     """
-    Lucid redirects here after account consent. Mirrors /callback exactly
-    but writes into the account token state fields and uses the account redirect URI.
+    Lucid redirects here after account consent (account token flow).
+    Validates state, exchanges the code for an account-level access token, stores it in memory.
     """
-    if error:
-        _log_account_step(
-            step=3,
-            label=f"Lucid returned an error: {error}",
-            detail=_explain_oauth_error(error, error_description),
-            status="error",
-            request=None,
-            response={"error": error, "error_description": error_description or ""},
-        )
-        return RedirectResponse(url=f"/?account_auth_error={urlquote(error)}")
-
-    if not code:
-        _log_account_step(
-            step=3,
-            label="No authorization code received",
-            detail=(
-                "Lucid redirected back without a code parameter. "
-                "Check that LUCID_ACCOUNT_REDIRECT_URI is registered in the Developer Portal."
-            ),
-            status="error",
-            request=None,
-            response={"error": "no_code"},
-        )
-        return RedirectResponse(url="/?account_auth_error=no_code_returned")
-
-    _log_account_step(
-        step=3,
-        label="Authorization code received",
-        detail=(
-            "Lucid redirected back to /callback-account with a one-time authorization code. "
-            "This will be exchanged for an account-level access token."
-        ),
-        status="ok",
-        request=None,
-        response={
-            "code": code[:8] + "•••• (truncated)",
-            "state": state_param[:8] + "•••• (truncated)" if state_param else None,
-        },
-    )
-
-    if state_param != state.rest_account_oauth_state:
-        _log_account_step(
-            step=4,
-            label="State mismatch — request rejected",
-            detail=(
-                "The state parameter returned by Lucid does not match what was stored. "
-                f"Expected: {str(state.rest_account_oauth_state)[:8] if state.rest_account_oauth_state else 'None (server restarted)'} "
-                f"Received: {str(state_param)[:8] if state_param else 'None'}"
-            ),
-            status="error",
-            request=None,
-            response={"error": "state_mismatch"},
-        )
-        return RedirectResponse(url="/?account_auth_error=state_mismatch")
-
-    _log_account_step(
-        step=4,
-        label="State token validated — CSRF check passed",
-        detail="The state parameter matches. This is a genuine redirect from Lucid.",
-        status="ok",
-        request=None,
-        response={"csrf_check": "passed"},
-    )
-
-    token_request_body = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": LUCID_ACCOUNT_REDIRECT_URI,
-        "client_id": LUCID_CLIENT_ID,
-        "client_secret": LUCID_CLIENT_SECRET,
-    }
-
-    _log_account_step(
-        step=5,
-        label="Token request — POST to Lucid token endpoint",
-        detail=(
-            f"Server-to-server POST to {LUCID_TOKEN_URL}. "
-            "Requesting an account-level token. "
-            "The client_secret is sent directly from the backend — never via the browser."
-        ),
-        status="pending",
-        request={
-            "method": "POST",
-            "url": LUCID_TOKEN_URL,
-            "body": {
-                "grant_type": "authorization_code",
-                "code": code[:8] + "•••• (truncated)",
-                "redirect_uri": LUCID_ACCOUNT_REDIRECT_URI,
-                "client_id": LUCID_CLIENT_ID,
-                "client_secret": "•••••••••••• (never sent to browser)",
-            },
-        },
-        response=None,
-    )
-
-    token_data, raw_response = await _exchange_code_for_token(token_request_body)
-
-    if token_data is None:
-        _log_account_step(
-            step=5,
-            label="Token exchange failed",
-            detail=(
-                "The POST to Lucid's token endpoint failed. "
-                "Check LUCID_ACCOUNT_REDIRECT_URI matches the Developer Portal exactly."
-            ),
-            status="error",
-            request=None,
-            response=raw_response or {"error": "token_exchange_failed"},
-        )
-        return RedirectResponse(url="/?account_auth_error=token_exchange_failed")
-
-    _store_rest_account_token(token_data)
-    scopes_granted = " ".join(state.rest_account_token_scopes) or "unknown"
-
-    display_token_response = dict(token_data)
-    if "access_token" in display_token_response:
-        raw_token = display_token_response["access_token"]
-        display_token_response["access_token"] = raw_token[:8] + "•••• (stored in server memory only)"
-
-    _log_account_step(
-        step=5,
-        label="Account token acquired",
-        detail=(
-            f"Account token stored in server memory. "
-            f"Scopes granted: {scopes_granted}. "
-            f"Expires in: {token_data.get('expires_in', 'unknown')}s. "
-            f"This token unlocks account-admin operations like createUser."
-        ),
-        status="ok",
-        request=None,
-        response=display_token_response,
-    )
-
-    state.rest_account_oauth_state = None
-    return RedirectResponse(url="/?account_auth_success=true")
+    return await _run_oauth_callback(_account_flow_config(), code, state_param, error, error_description)
 
 
 # ── Required scopes ───────────────────────────────────────────────────────────
@@ -785,7 +702,7 @@ async def required_scopes() -> JSONResponse:
 @router.get("/auth/status", summary="Return auth state for all three API surfaces")
 async def auth_status() -> JSONResponse:
     """Return current authentication status for REST, SCIM, and MCP."""
-    if state.scim_bearer_token is None and LUCID_SCIM_TOKEN:
+    if state.scim_bearer_token is None and SCIM_CONFIGURED and LUCID_SCIM_TOKEN:
         state.scim_bearer_token = LUCID_SCIM_TOKEN
     return JSONResponse(content=state.get_auth_status())
 

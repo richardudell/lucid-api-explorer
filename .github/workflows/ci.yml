@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    name: Lint + Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-asyncio ruff
+
+      - name: Lint with ruff
+        run: ruff check app/ main.py
+
+      - name: Run tests
+        # Provide dummy env vars so config.py can import without a real .env.
+        # The test suite itself patches load_dotenv to a no-op for config tests,
+        # but config.py is imported at app startup for other test modules too.
+        env:
+          LUCID_CLIENT_ID: ci-client-id
+          LUCID_CLIENT_SECRET: ci-client-secret
+          LUCID_REDIRECT_URI: http://localhost:8000/callback
+          LUCID_ACCOUNT_REDIRECT_URI: http://localhost:8000/callback-account
+          LUCID_SCIM_TOKEN: ci-scim-token
+          LUCID_OAUTH_SCOPES: account.user:readonly
+          LUCID_ACCOUNT_OAUTH_SCOPES: account.user
+          ANTHROPIC_API_KEY: ci-anthropic-key
+        run: pytest tests/ -v --tb=short

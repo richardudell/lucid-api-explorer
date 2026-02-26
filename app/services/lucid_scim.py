@@ -96,7 +96,7 @@ async def execute_scim_call(endpoint_key: str, params: dict) -> dict:
             body = json.loads(params["body"])
             # SCIM spec requires application/scim+json for write operations
             headers["Content-Type"] = "application/scim+json"
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, TypeError) as e:
             return _error_result(f"Invalid JSON body: {e}")
 
     request_log = {

@@ -36,10 +36,11 @@ We use the actual Pydantic model types, not plain dicts.
 
 import asyncio
 import json
+import logging
 import time
 from datetime import datetime
-from typing import Any
 
+import anyio
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamablehttp_client
@@ -50,6 +51,18 @@ from app.config import (
     LUCID_MCP_URL,
     LUCID_MCP_REDIRECT_URI,
 )
+
+_log = logging.getLogger(__name__)
+
+# ── Tuning constants ───────────────────────────────────────────────────────────
+MCP_AUTH_POLL_ITERATIONS = 100    # 100 × MCP_AUTH_POLL_SLEEP = 10 s max wait for auth URL
+MCP_AUTH_POLL_SLEEP      = 0.1    # seconds between each poll iteration
+MCP_CALLBACK_GRACE_SLEEP = 0.1    # seconds grace period before token-exchange wait
+MCP_OAUTH_TIMEOUT        = 600.0  # seconds: streamablehttp_client outer timeout (user interaction window)
+MCP_TOKEN_EXCHANGE_TIMEOUT = 15.0 # seconds: asyncio.wait_for timeout for token exchange
+MCP_PROMPT_EXEC_TIMEOUT  = 30.0   # seconds: streamablehttp_client timeout for prompt execution
+MCP_TOOL_LIST_TIMEOUT    = 15.0   # seconds: streamablehttp_client timeout for list_mcp_tools
+MCP_PLAN_MAX_TOKENS      = 400    # Claude token budget for MCP tool-call planning
 
 # ── In-memory token storage implementation ─────────────────────────────────────
 # TokenStorage is a Protocol — we implement it backed by app.state.
@@ -125,7 +138,7 @@ def _make_client_metadata() -> OAuthClientMetadata:
     )
 
 
-async def initiate_mcp_auth(force_reauth: bool = False) -> tuple[str | None, str | None]:
+async def initiate_mcp_auth(force_reauth: bool = False) -> tuple[str | None, str | None, bool]:
     """
     Begin the MCP OAuth + DCR flow. Returns the authorization URL the user
     must visit to grant consent.
@@ -144,7 +157,10 @@ async def initiate_mcp_auth(force_reauth: bool = False) -> tuple[str | None, str
     Called by GET /auth/mcp.
 
     Returns:
-      (auth_url, error_message)
+      (auth_url, error_message, already_authenticated)
+      - auth_url: the Lucid authorization URL, or None on error / already authed
+      - error_message: human-readable reason when auth_url is None, or None on success
+      - already_authenticated: True when auth_url is None because auth is current (not an error)
     """
     global _oauth_provider, _callback_event, _callback_code, _callback_state, _auth_task, _pending_auth_url
 
@@ -152,11 +168,11 @@ async def initiate_mcp_auth(force_reauth: bool = False) -> tuple[str | None, str
     # a second flow that would invalidate the first flow's state.
     if _auth_task is not None and not _auth_task.done():
         if _pending_auth_url:
-            return (_pending_auth_url, None)
-        return (None, "MCP auth is already starting. Please wait a moment and try again.")
+            return (_pending_auth_url, None, False)
+        return (None, "MCP auth is already starting. Please wait a moment and try again.", False)
 
     if state.is_mcp_authenticated() and not force_reauth:
-        return (None, "MCP already authenticated. No new connection is required.")
+        return (None, "MCP already authenticated. No new connection is required.", True)
 
     if force_reauth:
         global _mcp_token, _mcp_client_info
@@ -217,7 +233,7 @@ async def initiate_mcp_auth(force_reauth: bool = False) -> tuple[str | None, str
             async with streamablehttp_client(
                 url=LUCID_MCP_URL,
                 auth=_oauth_provider,
-                timeout=600.0,  # allow user interaction window for OAuth redirect
+                timeout=MCP_OAUTH_TIMEOUT,  # allow user interaction window for OAuth redirect
             ) as (read_stream, write_stream, _):
                 async with ClientSession(read_stream, write_stream) as session:
                     # This call triggers the first authenticated MCP exchange.
@@ -233,23 +249,28 @@ async def initiate_mcp_auth(force_reauth: bool = False) -> tuple[str | None, str
 
     # Poll briefly for redirect_handler to be called with the auth URL.
     # DCR registration + building the auth URL takes ~1-3 seconds.
-    import anyio
-    for _ in range(100):  # up to 10 seconds
-        await anyio.sleep(0.1)
+    for _ in range(MCP_AUTH_POLL_ITERATIONS):
+        await anyio.sleep(MCP_AUTH_POLL_SLEEP)
         if auth_url_holder:
             break
         # Check if the task died early (unexpected error)
         if _auth_task.done():
             exc = _auth_task.exception()
             if exc:
-                return (None, str(exc))
+                return (None, str(exc), False)
             break
+
+    # If polling exhausted without an auth URL, cancel the background task to
+    # avoid orphaned task handles accumulating on long-running servers.
+    if not auth_url_holder and _auth_task is not None and not _auth_task.done():
+        _auth_task.cancel()
+        _auth_task = None
 
     if not auth_url_holder:
         err = auth_error_holder[0] if auth_error_holder else "Failed to generate MCP authorization URL."
-        return (None, err)
+        return (None, err, False)
 
-    return (auth_url_holder[0], None)
+    return (auth_url_holder[0], None, False)
 
 
 async def complete_mcp_auth(code: str, state_param: str | None) -> tuple[bool, str | None]:
@@ -273,10 +294,9 @@ async def complete_mcp_auth(code: str, state_param: str | None) -> tuple[bool, s
     # Wait for the background task to finish the token exchange
     if _auth_task is not None and not _auth_task.done():
         try:
-            import anyio
-            await anyio.sleep(0.1)  # small grace period for the exchange to start
-            # Wait up to 15s for the token exchange to complete
-            await asyncio.wait_for(asyncio.shield(_auth_task), timeout=15.0)
+            await anyio.sleep(MCP_CALLBACK_GRACE_SLEEP)  # small grace period for the exchange to start
+            # Wait up to MCP_TOKEN_EXCHANGE_TIMEOUT for the token exchange to complete
+            await asyncio.wait_for(asyncio.shield(_auth_task), timeout=MCP_TOKEN_EXCHANGE_TIMEOUT)
         except asyncio.TimeoutError:
             return (state.is_mcp_authenticated(), "Timed out waiting for MCP token exchange.")
         except asyncio.CancelledError:
@@ -335,7 +355,7 @@ async def execute_mcp_prompt(prompt: str) -> dict:
         async with streamablehttp_client(
             url=LUCID_MCP_URL,
             auth=provider,
-            timeout=30.0,
+            timeout=MCP_PROMPT_EXEC_TIMEOUT,
         ) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -405,44 +425,11 @@ async def _plan_tool_calls(prompt: str, available_tools: list[dict]) -> list[dic
     Ask Claude which MCP tools to call for the given prompt.
     Returns a list of {"tool": name, "arguments": {...}} dicts.
 
-    Delegates to ai_client to stay within the single-SDK-caller constraint.
+    Delegates to ai_client to respect the single-SDK-caller constraint
+    (CLAUDE.md: all Anthropic SDK calls must go through ai_client.py).
     """
-    # Import here to avoid circular imports (ai_client imports nothing from mcp)
-    from app.services.ai_client import _client, MODEL, _SYSTEM_PROMPT
-
-    tools_summary = "\n".join(
-        f"- {t['name']}: {t.get('description', 'no description')}"
-        for t in available_tools
-    )
-
-    planning_prompt = f"""The engineer sent this prompt to the Lucid MCP server:
-"{prompt}"
-
-Available MCP tools:
-{tools_summary}
-
-Respond with a JSON array of tool calls to make. Each item: {{"tool": "tool_name", "arguments": {{...}}}}.
-Only include tools that are clearly needed. If no tool fits, return an empty array [].
-Respond with ONLY the JSON array, no explanation."""
-
-    message = _client.messages.create(
-        model=MODEL,
-        max_tokens=400,
-        system=_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": planning_prompt}],
-    )
-
-    import json
-    text = message.content[0].text.strip()
-    # Strip markdown code fences if present
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return []
+    from app.services.ai_client import plan_mcp_tool_calls
+    return await plan_mcp_tool_calls(prompt, available_tools)
 
 
 # ── List available tools (for the capabilities panel) ─────────────────────────
@@ -465,7 +452,7 @@ async def list_mcp_tools() -> list[dict]:
         )
 
     try:
-        async with streamablehttp_client(url=LUCID_MCP_URL, auth=provider, timeout=15.0) as (
+        async with streamablehttp_client(url=LUCID_MCP_URL, auth=provider, timeout=MCP_TOOL_LIST_TIMEOUT) as (
             read_stream, write_stream, _
         ):
             async with ClientSession(read_stream, write_stream) as session:

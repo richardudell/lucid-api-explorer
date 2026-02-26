@@ -379,6 +379,17 @@ const ENDPOINTS = {
         required: false,
         hint: 'Required when grant_type is authorization_code — must match the registered redirect URI',
       },
+      {
+        name: 'token_slot',
+        label: 'Token slot to update',
+        type: 'select',
+        required: false,
+        hint: 'Which in-memory token slot should be updated on success. Must match the token you are refreshing. Defaults to "user".',
+        options: [
+          { value: 'user', label: 'user — update the user (REST) token slot' },
+          { value: 'account', label: 'account — update the account (admin) token slot' },
+        ],
+      },
     ],
   },
   introspectAccessToken: {
@@ -618,6 +629,7 @@ const btnReauthAccount  = $('#btn-reauth-account');
 const wsCards      = $('#workspace-cards');
 const wsEndpoint   = $('#workspace-endpoint');
 const wsMcp        = $('#workspace-mcp');
+const wsSaml       = $('#workspace-saml');
 
 const breadcrumbPath  = $('#breadcrumb-path');
 const endpointMethod  = $('#endpoint-method-badge');
@@ -629,8 +641,10 @@ const paramFields     = $('#param-fields');
 const btnExecute      = $('#btn-execute');
 const responseViewer  = $('#response-viewer');
 const responseStatus  = $('#response-status-badge');
+const responseCorrelation = $('#response-correlation');
 const responseLatency = $('#response-latency');
 const responseJson    = $('#response-json');
+const responseErrorInspector = $('#response-error-inspector');
 
 const btnBack     = $('#btn-back');
 const btnBackMcp  = $('#btn-back-mcp');
@@ -640,6 +654,7 @@ const mcpPromptInput    = $('#mcp-prompt-input');
 const btnMcpSubmit      = $('#btn-mcp-submit');
 const mcpResponseViewer = $('#mcp-response-viewer');
 const mcpResponseContent = $('#mcp-response-content');
+const mcpResponseCorrelation = $('#mcp-response-correlation');
 const mcpStructuredResults = $('#mcp-structured-results');
 const mcpRawControls = $('#mcp-raw-controls');
 const btnMcpRawToggle = $('#btn-mcp-raw-toggle');
@@ -699,6 +714,11 @@ function updateAuthUI(status) {
     btnMcpSubmit.disabled = !mcpOk;
     btnMcpSubmit.title = mcpOk ? '' : 'Connect MCP first';
   }
+
+  // Explicitly unlock the Simulate tab whenever auth state confirms REST is authenticated.
+  // simUnlock() is also called unconditionally from initSimulate() so the game is always
+  // playable — this call makes the intent clear and ties unlock to real auth state.
+  if (restOk) simUnlock();
 
   renderScopeSummary(status);
 }
@@ -1806,7 +1826,7 @@ function _dcrRenderStep(idx) {
   // Callout text
   _dcrBadgeEl.textContent  = `STEP ${idx + 1}`;
   _dcrTitleEl.textContent  = step.title;
-  _dcrDetailEl.innerHTML = step.detail;
+  _dcrDetailEl.textContent = step.detail;  // textContent — step.detail is plain text from backend
 
   // Payload
   if (step.payload) {
@@ -2127,7 +2147,12 @@ function initSidebar() {
   $$('.endpoint-item').forEach(item => {
     item.addEventListener('click', () => {
       const key = item.dataset.endpoint;
-      if (key === 'mcpPrompt') {
+      const samlView = item.dataset.samlView;
+      if (samlView) {
+        // SAML nav items — switch view within the SAML workspace
+        samlShowView(samlView);
+        showWorkspace('saml');
+      } else if (key === 'mcpPrompt') {
         showWorkspace('mcp');
       } else {
         loadEndpoint(key);
@@ -2144,6 +2169,14 @@ function initSidebar() {
       const surface = btn.dataset.surface;
       if (surface === 'mcp') {
         showWorkspace('mcp');
+      } else if (surface === 'saml') {
+        // Expand sidebar SAML section and show setup view
+        const header = $(`.surface-header[data-surface="saml"]`);
+        const list   = $(`#endpoints-saml`);
+        if (header) header.classList.add('expanded');
+        if (list)   list.classList.add('open');
+        samlShowView('setup');
+        showWorkspace('saml');
       } else {
         // Expand sidebar section and load first endpoint for that surface
         const header = $(`.surface-header[data-surface="${surface}"]`);
@@ -2173,10 +2206,12 @@ function showWorkspace(state) {
   wsCards.classList.remove('active');
   wsEndpoint.classList.remove('active');
   wsMcp.classList.remove('active');
+  if (wsSaml) wsSaml.classList.remove('active');
 
   if (state === 'cards')    wsCards.classList.add('active');
   if (state === 'endpoint') wsEndpoint.classList.add('active');
   if (state === 'mcp')      wsMcp.classList.add('active');
+  if (state === 'saml' && wsSaml) wsSaml.classList.add('active');
 }
 
 function loadEndpoint(key) {
@@ -2236,6 +2271,20 @@ function renderParamFields(params) {
       input = document.createElement('textarea');
       input.className = 'param-input';
       if (param.placeholder) input.placeholder = param.placeholder;
+      // Real-time JSON syntax validation — shows red border + tooltip on invalid input.
+      // Uses the existing 'error' CSS class (same one collectParams() uses for required fields).
+      input.addEventListener('input', () => {
+        const val = input.value.trim();
+        if (!val) { input.classList.remove('error'); input.title = ''; return; }
+        try {
+          JSON.parse(val);
+          input.classList.remove('error');
+          input.title = '';
+        } catch (e) {
+          input.classList.add('error');
+          input.title = `Invalid JSON: ${e.message}`;
+        }
+      });
     } else if (param.type === 'select') {
       input = document.createElement('select');
       input.className = 'param-input param-select';
@@ -2498,19 +2547,22 @@ async function executeEndpoint(ep, params) {
     });
 
     const latency = Date.now() - startTime;
-    const data = sanitizeExecutionData(await res.json());
+    const raw = await res.json();
+    const normalized = normalizeApiEnvelope(raw, res.status);
+    const data = sanitizeExecutionData(normalized.execution);
+    const envelope = normalized.envelope;
 
     // Re-animate with real status code now that we have the response
     archAnimate(ep.surface || 'rest', ep.method || 'POST', ep.urlTemplate || '', data.status_code || res.status);
 
     // Update response viewer
-    displayResponse(data, latency);
+    displayResponse(data, latency, envelope);
 
     // Update terminal
-    renderTerminal(data);
+    renderTerminal(data, envelope);
 
     // Update code tab
-    renderCode(data);
+    renderCode(data, envelope);
 
     recordSiSessionEvent({
       kind: 'rest_call',
@@ -2535,7 +2587,7 @@ async function executeEndpoint(ep, params) {
   }
 }
 
-function displayResponse(data, latency) {
+function displayResponse(data, latency, envelope = null) {
   const statusCode = data.status_code || 0;
 
   responseStatus.textContent = statusCode;
@@ -2547,12 +2599,22 @@ function displayResponse(data, latency) {
 
   responseLatency.textContent = `${latency}ms`;
   responseJson.textContent = JSON.stringify(data.body, null, 2);
+  const cid = envelope?.correlation_id || data.correlation_id || '';
+  if (responseCorrelation) {
+    if (cid) {
+      responseCorrelation.textContent = `cid: ${cid}`;
+      responseCorrelation.classList.remove('hidden');
+    } else {
+      responseCorrelation.classList.add('hidden');
+    }
+  }
+  renderErrorInspector(envelope);
   responseViewer.classList.remove('hidden');
 }
 
 // ── Terminal rendering ─────────────────────────────────────────────────────────
 
-function renderTerminal(data) {
+function renderTerminal(data, envelope = null) {
   const req = data.request || {};
   const res = data;
   const ts  = new Date().toLocaleTimeString();
@@ -2580,6 +2642,9 @@ function renderTerminal(data) {
   addTerminalSection('INBOUND RESPONSE');
   const statusClass = (res.status_code >= 400) ? 'err' : 'in';
   addTerminalLine(ts, `HTTP ${res.status_code}`, statusClass);
+  if (envelope?.correlation_id) {
+    addTerminalLine('', `  correlation_id: ${envelope.correlation_id}`, 'in');
+  }
 
   if (res.response_headers) {
     Object.entries(res.response_headers).forEach(([k, v]) => {
@@ -2652,10 +2717,11 @@ function appendTerminalMessage(text, type = 'out') {
 
 // ── Code tab rendering ─────────────────────────────────────────────────────────
 
-function renderCode(data) {
+function renderCode(data, envelope = null) {
   const req = data.request || {};
-  curlOutput.textContent  = data.curl_command  || generateCurl(req);
-  pythonOutput.textContent = data.python_snippet || generatePython(req);
+  const cidLine = envelope?.correlation_id ? `# correlation_id: ${envelope.correlation_id}\n` : '';
+  curlOutput.textContent  = cidLine + (data.curl_command  || generateCurl(req));
+  pythonOutput.textContent = cidLine + (data.python_snippet || generatePython(req));
 }
 
 function generateCurl(req) {
@@ -2701,7 +2767,10 @@ async function fetchNarrative(executionData) {
     });
 
     if (!res.ok) throw new Error(`${res.status}`);
-    const data = sanitizeExecutionData(await res.json());
+    const payload = await res.json();
+    const parsed = envelopeData(payload);
+    if (parsed.error) throw new Error(parsed.error.message || 'Narrative unavailable');
+    const data = sanitizeExecutionData(parsed.data || {});
     renderNarrative(data.narrative);
   } catch (err) {
     narrativeOutput.innerHTML = `<span style="color:var(--error-red)">Narrative unavailable: ${escapeHtml(err.message)}</span>`;
@@ -2740,12 +2809,17 @@ function renderNarrative(text) {
   });
 }
 
-// Get Narrative button — only fires Claude when explicitly clicked
+// Get Narrative button — only fires Claude when explicitly clicked.
+// Uses disabled (not hidden) to prevent double-clicks while the request is in flight.
 btnGetNarrative.addEventListener('click', async () => {
   if (!lastExecutionContext) return;
-  btnGetNarrative.classList.add('hidden');
+  btnGetNarrative.disabled = true;
   switchTab('narrative');
-  await fetchNarrative(lastExecutionContext);
+  try {
+    await fetchNarrative(lastExecutionContext);
+  } finally {
+    btnGetNarrative.disabled = false;
+  }
 });
 
 // Follow-up questions
@@ -2774,7 +2848,10 @@ async function submitFollowup() {
     });
 
     if (!res.ok) throw new Error(`${res.status}`);
-    const data = sanitizeExecutionData(await res.json());
+    const payload = await res.json();
+    const parsed = envelopeData(payload);
+    if (parsed.error) throw new Error(parsed.error.message || 'Follow-up unavailable');
+    const data = sanitizeExecutionData(parsed.data || {});
     responseEl.innerHTML = `<strong>Q: ${escapeHtml(question)}</strong><br>${escapeHtml(data.answer)}`;
   } catch (err) {
     responseEl.innerHTML = `<strong>Q: ${escapeHtml(question)}</strong><br><span style="color:var(--error-red)">Error: ${escapeHtml(err.message)}</span>`;
@@ -2852,13 +2929,16 @@ btnMcpSubmit.addEventListener('click', async () => {
       body: JSON.stringify({ prompt }),
     });
 
-    const data = sanitizeExecutionData(await res.json());
+    const raw = await res.json();
+    const normalized = normalizeApiEnvelope(raw, res.status);
+    const data = sanitizeExecutionData(normalized.execution);
+    const envelope = normalized.envelope;
     // Re-animate with real status code
     archAnimate('mcp', 'POST', '/api/mcp/prompt', data.status_code || res.status);
-    renderMcpResponse(data);
+    renderMcpResponse(data, envelope);
 
-    renderTerminal(data);
-    renderCode(data);
+    renderTerminal(data, envelope);
+    renderCode(data, envelope);
 
     recordSiSessionEvent({
       kind: 'mcp_prompt',
@@ -2881,7 +2961,7 @@ btnMcpSubmit.addEventListener('click', async () => {
   }
 });
 
-function renderMcpResponse(data) {
+function renderMcpResponse(data, envelope = null) {
   const searchResults = (data.body && Array.isArray(data.body.search_results))
     ? data.body.search_results
     : [];
@@ -2916,6 +2996,15 @@ function renderMcpResponse(data) {
   mcpRawControls.classList.remove('hidden');
   btnMcpRawToggle.textContent = 'Show raw MCP payload ▾';
   mcpResponseViewer.classList.remove('hidden');
+  const cid = envelope?.correlation_id || data.correlation_id || '';
+  if (mcpResponseCorrelation) {
+    if (cid) {
+      mcpResponseCorrelation.textContent = `cid: ${cid}`;
+      mcpResponseCorrelation.classList.remove('hidden');
+    } else {
+      mcpResponseCorrelation.classList.add('hidden');
+    }
+  }
 }
 
 // ── Notepad ────────────────────────────────────────────────────────────────────
@@ -2935,7 +3024,10 @@ btnAskClaude.addEventListener('click', async () => {
       body: JSON.stringify({ content }),
     });
 
-    const data = await res.json();
+    const payload = await res.json();
+    const parsed = envelopeData(payload);
+    if (parsed.error) throw new Error(parsed.error.message || 'Could not interpret notepad');
+    const data = parsed.data || {};
     narrativeOutput.innerHTML = `<div class="narrative-beat-text">${escapeHtml(data.response)}</div>`;
   } catch (err) {
     narrativeOutput.innerHTML = `<span style="color:var(--error-red)">Error: ${escapeHtml(err.message)}</span>`;
@@ -2947,6 +3039,7 @@ btnAskClaude.addEventListener('click', async () => {
 // ── Bottom panel tabs ──────────────────────────────────────────────────────────
 
 panelTabs.forEach(tab => {
+  if (!tab.dataset.tab) return; // skip the collapse button
   tab.addEventListener('click', () => switchTab(tab.dataset.tab));
 });
 
@@ -2956,7 +3049,58 @@ function switchTab(name) {
     if (!pane) return;
     pane.classList.toggle('active', pane.id === `tab-${name}`);
   });
+  if (name === 'simulate' && typeof window.lucidSetBottomPanelMode === 'function') {
+    window.lucidSetBottomPanelMode('expanded');
+    simLayoutTriangleTracks();
+  }
 }
+
+// ── Bottom panel size controls (normal / expanded / collapsed) ─────────────────
+
+(function() {
+  const collapseBtn = document.getElementById('panel-collapse-btn');
+  const expandBtn   = document.getElementById('panel-expand-btn');
+  const panel       = document.getElementById('bottom-panel');
+  if (!collapseBtn || !expandBtn || !panel) return;
+
+  const LS_KEY = 'lucid_bottom_panel_mode';
+  const MODES = { NORMAL: 'normal', EXPANDED: 'expanded', COLLAPSED: 'collapsed' };
+
+  function applyPanelMode(mode) {
+    const isCollapsed = mode === MODES.COLLAPSED;
+    const isExpanded  = mode === MODES.EXPANDED;
+
+    panel.classList.toggle('panel-collapsed', isCollapsed);
+    panel.classList.toggle('panel-expanded', isExpanded);
+    document.body.classList.toggle('panel-collapsed', isCollapsed);
+    document.body.classList.toggle('panel-expanded', isExpanded);
+
+    collapseBtn.textContent = isCollapsed ? '▲' : '▼';
+    collapseBtn.title = isCollapsed ? 'Expand panel' : 'Collapse panel';
+    expandBtn.title = isExpanded ? 'Return to normal panel height' : 'Expand panel';
+
+    collapseBtn.classList.toggle('panel-size-active', isCollapsed);
+    expandBtn.classList.toggle('panel-size-active', isExpanded);
+
+    localStorage.setItem(LS_KEY, mode);
+  }
+
+  window.lucidSetBottomPanelMode = applyPanelMode;
+
+  collapseBtn.addEventListener('click', () => {
+    const next = panel.classList.contains('panel-collapsed') ? MODES.NORMAL : MODES.COLLAPSED;
+    applyPanelMode(next);
+  });
+
+  expandBtn.addEventListener('click', () => {
+    const next = panel.classList.contains('panel-expanded') ? MODES.NORMAL : MODES.EXPANDED;
+    applyPanelMode(next);
+  });
+
+  const saved = localStorage.getItem(LS_KEY);
+  const startMode = (saved === MODES.COLLAPSED || saved === MODES.EXPANDED) ? saved : MODES.NORMAL;
+  applyPanelMode(startMode);
+})();
 
 // ── Copy buttons ───────────────────────────────────────────────────────────────
 
@@ -3032,9 +3176,14 @@ async function generateSiWithClaude(prompt, targetInput, statusEl, btn) {
         context: buildSiGenerationContext(),
       }),
     });
-    const data = await res.json();
+    const payload = await res.json();
+    const parsed = envelopeData(payload);
+    if (parsed.error) {
+      throw new Error(parsed.error.message || `Generation failed (${res.status})`);
+    }
+    const data = parsed.data || {};
     if (!data.document) {
-      throw new Error(data.error || `Generation failed (${res.status})`);
+      throw new Error(`Generation failed (${res.status})`);
     }
     targetInput.value = JSON.stringify(data.document, null, 2);
     targetInput.classList.remove('error');
@@ -3082,6 +3231,69 @@ function sanitizeExecutionData(data) {
     });
   }
   return copy;
+}
+
+function envelopeData(payload) {
+  if (payload && payload.ok === true && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+    return { data: payload.data, error: null, correlation_id: payload.correlation_id || null };
+  }
+  if (payload && payload.ok === false && payload.error) {
+    return { data: payload.data || null, error: payload.error, correlation_id: payload.correlation_id || null };
+  }
+  // Backward-compat: routes that still return raw payloads.
+  return { data: payload, error: null, correlation_id: payload?.correlation_id || null };
+}
+
+function normalizeApiEnvelope(payload, fallbackStatus) {
+  const parsed = envelopeData(payload);
+  const envelope = payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'ok')
+    ? payload
+    : null;
+
+  if (parsed.error) {
+    const legacy = parsed.data && typeof parsed.data === 'object'
+      ? parsed.data
+      : {
+          status_code: parsed.error.http_status || fallbackStatus || 500,
+          body: { error: parsed.error.message || 'Request failed.' },
+          request: {},
+          response_headers: {},
+          auth_method: '',
+          latency_ms: 0,
+        };
+    legacy.correlation_id = parsed.correlation_id;
+    return { execution: legacy, envelope };
+  }
+
+  const execution = parsed.data && typeof parsed.data === 'object'
+    ? parsed.data
+    : {
+        status_code: fallbackStatus || 200,
+        body: parsed.data,
+        request: {},
+        response_headers: {},
+        auth_method: '',
+        latency_ms: 0,
+      };
+  execution.correlation_id = parsed.correlation_id;
+  return { execution, envelope };
+}
+
+function renderErrorInspector(envelope) {
+  if (!responseErrorInspector) return;
+  if (!envelope || envelope.ok !== false || !envelope.error) {
+    responseErrorInspector.classList.add('hidden');
+    responseErrorInspector.innerHTML = '';
+    return;
+  }
+  const err = envelope.error;
+  responseErrorInspector.innerHTML = `
+    <div class="response-error-chip">${escapeHtml(err.category || 'unknown_error')}</div>
+    <div class="response-error-meta">retryable: <strong>${err.retryable ? 'yes' : 'no'}</strong></div>
+    <div class="response-error-meta">action: <strong>${escapeHtml(err.recommended_action || 'escalate_engineering')}</strong></div>
+    <div class="response-error-meta">cid: <strong>${escapeHtml(envelope.correlation_id || '')}</strong></div>
+  `;
+  responseErrorInspector.classList.remove('hidden');
 }
 
 function validateStandardImportParams(params) {
@@ -3576,206 +3788,230 @@ function init() {
   if (btnMcpConnect) btnMcpConnect.addEventListener('click', (ev) => _mcpConnectHandler(ev));
   if (btnMcpReconnect) btnMcpReconnect.addEventListener('click', (ev) => _mcpConnectHandler(ev));
   initSimulate();
+  initSaml();
 }
 
 document.addEventListener('DOMContentLoaded', init);
 
 // ── OAuth Packet Intercept — Simulation Game ────────────────────────────────
 
-// ── Step configs — 6-step flat array matching the real OAuth Authorization Code Flow ──
-// Source of truth: FLOW_STEP_CONFIG (line ~986) + app/routes/auth.py
-// type:'internal' = server-only pulse, no packet
-// type:'packet'   = clickable/interceptable packet flying across a track
+// ── Step configs — 9-step flow matching OAuth Authorization Code + PKCE triangle model ──
+// type:'internal' = actor pulse only, no packet
+// type:'packet'   = clickable/interceptable packet on one of three tracks
 const SIM_STEPS = [
-
-  // ── Step 1: Server generates CSRF state token (internal) ─────────────────────
   {
     type: 'internal', actor: 'server', durationMs: 1200,
-    insecureDesc: 'Step 1: Server generates CSRF state token — internal only, nothing crosses the wire.',
-    pkceDesc:     'Step 1: Server generates state token + code_verifier + code_challenge — all internal.',
-    insecureResult: 'A random state token is created and stored server-side. Lucid will echo it back on the callback — a mismatch means CSRF. In insecure mode (no PKCE), this is still present but the code is your real vulnerability.',
-    pkceResult:     'State token created. Additionally, code_verifier is generated (random secret) and code_challenge = SHA-256(code_verifier) is computed. The verifier stays server-side — never transmitted. The challenge goes out in the redirect.',
+    insecureDesc: 'Step 1: Your Server generates state token (no PKCE). Internal only.',
+    pkceDesc:     'Step 1: Your Server generates state + code_verifier + code_challenge. Internal only.',
+    insecureResult: 'State defends CSRF, but intercepted authorization codes remain redeemable without PKCE.',
+    pkceResult:     'code_verifier remains server-side and is never sent on browser tracks.',
   },
-
-  // ── Step 2: Server 302-redirects browser to Lucid (Track 1, Server → Browser) ─
   {
-    type: 'packet', track: 1, dir: 'left',
-    packetClass: 'sim-pkt-redirect', label: '302 \u2192 Lucid',
+    type: 'packet', track: 1, dir: 'up-right',
+    packetClass: 'sim-pkt-redirect', label: '302 → Lucid',
     flightMs: 2800,
-    desc: 'Server redirects browser to Lucid\u2019s consent screen. Click the packet to intercept.',
+    desc: 'Track 1: Your Server redirects Browser to Lucid authorization endpoint.',
     actorFrom: 'server', actorTo: 'browser',
     insecure: {
       canTriggerPwned: false,
-      flashIcon: '\u26a1', flashTitle: 'Auth URL intercepted!',
-      flashBody: 'No code_challenge. You know the redirect URI — you can forge the callback.',
+      flashIcon: '\u26a1', flashTitle: 'Redirect intercepted',
+      flashBody: 'In insecure mode, authorization URL has no PKCE challenge.',
       resultLabel: 'INTERCEPTED', resultLabelClass: 'sim-result-label-attack',
-      resultTitle: 'Attack vector: no PKCE challenge in auth URL',
+      resultTitle: 'No code_challenge in the redirect URL',
       resultPayload:
-`302 Redirect \u2192 Lucid:
+`Track 1 (Server → Browser):
 GET /authorize
   ?client_id=abc123
   &redirect_uri=https://myapp.example.com/callback
   &response_type=code
-  &state=x7kQpR9s
-  \u2190 no code_challenge
-
-No PKCE. Any code Lucid returns can be
-exchanged by anyone. Intercept it next.`,
+  &state=x7kQpR9s`,
     },
     pkce: {
-      flashIcon: '\ud83d\udee1', flashTitle: 'Auth URL intercepted \u2014 PKCE active',
-      flashBody: 'You see code_challenge=E9Melhoa2\u2026 but the verifier was never transmitted. The code is already bound.',
+      flashIcon: '\ud83d\udee1', flashTitle: 'Redirect intercepted — PKCE active',
+      flashBody: 'code_challenge is visible but code_verifier is still secret.',
       resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
-      resultTitle: 'PKCE: code_challenge pre-binds the code to its originator',
+      resultTitle: 'PKCE pre-binds future code to hidden verifier',
       resultPayload:
-`302 Redirect \u2192 Lucid:
+`Track 1 (Server → Browser):
 GET /authorize
   ?client_id=abc123
   &redirect_uri=https://myapp.example.com/callback
   &response_type=code
   &state=x7kQpR9s
   &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
-  &code_challenge_method=S256
-
-SHA-256(code_verifier) \u2192 this challenge.
-Verifier stays server-side. Code is pre-bound.`,
+  &code_challenge_method=S256`,
     },
   },
-
-  // ── Step 3: Lucid delivers auth code to /callback (Track 2, Lucid → Server) ──
   {
-    type: 'packet', track: 2, dir: 'left',
-    packetClass: 'sim-pkt-code', label: 'code=\u2026',
+    type: 'packet', track: 2, dir: 'down-right',
+    packetClass: 'sim-pkt-auth-url', label: 'GET /authorize',
     flightMs: 2800,
-    desc: 'Lucid delivers auth code to /callback on Your Server. Click to intercept.',
-    actorFrom: 'lucid', actorTo: 'server',
+    desc: 'Track 2: Browser follows redirect and loads Lucid consent page.',
+    actorFrom: 'browser', actorTo: 'lucid',
     insecure: {
       canTriggerPwned: false,
-      flashIcon: '\ud83d\udca5', flashTitle: 'Auth code stolen!',
-      flashBody: 'No code_verifier required. POST this code to /token — Lucid will hand you a token.',
-      resultLabel: 'INTERCEPTED', resultLabelClass: 'sim-result-label-attack',
-      resultTitle: 'Attack vector: unrestricted code exchange',
+      flashIcon: '\u26a0', flashTitle: 'Authorization request observed',
+      flashBody: 'Browser-facing traffic is observable and interceptable.',
+      resultLabel: 'OBSERVED', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Browser → Lucid request carries OAuth query params',
       resultPayload:
-`Lucid \u2192 /callback:
-  code=SplxlOBeZQQYbYS6WxSbIA
-  state=x7kQpR9s  \u2190 echoed back
-
-POST /token (your attack):
-  code=SplxlOBeZQQYbYS6WxSbIA
-  client_id=abc123
-  \u2190 no code_verifier needed
-
-Lucid issues token. You win this step.`,
+`Track 2 (Browser → Lucid):
+GET /authorize
+  ?client_id=abc123
+  &redirect_uri=https://myapp.example.com/callback
+  &state=x7kQpR9s`,
     },
     pkce: {
-      flashIcon: '\ud83d\udee1', flashTitle: 'Code intercepted \u2014 exchange will fail',
-      flashBody: 'You have the code. But /token demands code_verifier. Without the server\u2019s secret: invalid_grant.',
+      flashIcon: '\ud83d\udee1', flashTitle: 'Authorization request observed',
+      flashBody: 'Attacker can see code_challenge, not the verifier needed at /token.',
       resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
-      resultTitle: 'PKCE: code_verifier required at token exchange',
+      resultTitle: 'Visible challenge does not reveal verifier',
       resultPayload:
-`Lucid \u2192 /callback:
-  code=SplxlOBeZQQYbYS6WxSbIA
-  state=x7kQpR9s
-
-POST /token (your attack):
-  code=SplxlOBeZQQYbYS6WxSbIA
-  \u2190 no code_verifier
-
-Lucid: { "error": "invalid_grant",
-  "error_description": "code_verifier required" }
-
-Attack stopped. Code is worthless alone.`,
+`Track 2 (Browser → Lucid):
+GET /authorize
+  ?client_id=abc123
+  &redirect_uri=https://myapp.example.com/callback
+  &state=x7kQpR9s
+  &code_challenge=E9Melhoa2...
+  &code_challenge_method=S256`,
     },
   },
+  {
+    type: 'internal', actor: 'lucid', durationMs: 1200,
+    insecureDesc: 'Step 4: User logs in at Lucid and clicks Allow.',
+    pkceDesc:     'Step 4: User consents at Lucid; code issuance is authorized.',
+    insecureResult: 'Human approval occurs at Lucid before redirecting back.',
+    pkceResult:     'Consent completed. PKCE validation still happens later at /token.',
+  },
+  {
+    type: 'packet', track: 2, dir: 'up-left',
+    packetClass: 'sim-pkt-code', label: '302 ?code=…',
+    flightMs: 2800,
+    desc: 'Track 2: Lucid redirects Browser to /callback with code in URL.',
+    actorFrom: 'lucid', actorTo: 'browser',
+    insecure: {
+      canTriggerPwned: false,
+      flashIcon: '\ud83d\udca5', flashTitle: 'Code intercepted',
+      flashBody: 'Primary attack point. Without PKCE, intercepted code is redeemable.',
+      resultLabel: 'INTERCEPTED', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Stolen code can be exchanged in insecure flow',
+      resultPayload:
+`Track 2 (Lucid → Browser):
+302 Location: /callback
+  ?code=SplxlOBeZQQYbYS6WxSbIA
+  &state=x7kQpR9s`,
+    },
+    pkce: {
+      flashIcon: '\ud83d\udee1', flashTitle: 'Code intercepted — replay blocked',
+      flashBody: 'Attacker has code but lacks code_verifier, so /token returns invalid_grant.',
+      resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'PKCE blocks stolen-code replay',
+      resultPayload:
+`Attacker exchange attempt:
+POST /token
+  code=SplxlOBeZQQYbYS6WxSbIA
+  (missing code_verifier)
 
-  // ── Step 4: Server validates state param (internal CSRF check) ───────────────
+Lucid response:
+{ "error": "invalid_grant" }`,
+    },
+  },
+  {
+    type: 'packet', track: 1, dir: 'down-left',
+    packetClass: 'sim-pkt-code', label: 'GET /callback',
+    flightMs: 2800,
+    desc: 'Track 1: Browser delivers code to Your Server callback endpoint.',
+    actorFrom: 'browser', actorTo: 'server',
+    insecure: {
+      canTriggerPwned: false,
+      flashIcon: '\u26a0', flashTitle: 'Callback observed',
+      flashBody: 'Browser carries code in URL query params to server callback.',
+      resultLabel: 'INTERCEPTED', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Browser acts as courier for code delivery',
+      resultPayload:
+`Track 1 (Browser → Server):
+GET /callback
+  ?code=SplxlOBeZQQYbYS6WxSbIA
+  &state=x7kQpR9s`,
+    },
+    pkce: {
+      flashIcon: '\ud83d\udee1', flashTitle: 'Callback observed',
+      flashBody: 'Even stolen callback code is unusable without verifier on Track 3.',
+      resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'Code transit exposure does not bypass PKCE',
+      resultPayload:
+`Track 1 (Browser → Server):
+GET /callback?code=...&state=...
+
+PKCE still requires code_verifier at /token.`,
+    },
+  },
   {
     type: 'internal', actor: 'server', durationMs: 1200,
-    insecureDesc: 'Step 4: Server validates state token — internal CSRF check, nothing crosses the wire.',
-    pkceDesc:     'Step 4: State/CSRF validated — server confirms callback came from same session.',
-    insecureResult: 'State param echoed by Lucid matches what was stored. CSRF blocked here — but in insecure mode the code was already stolen in step 3. Token exchange is next.',
-    pkceResult:     'State matches. PKCE verification happens at /token — a second, cryptographic layer of protection orthogonal to the CSRF state check.',
+    insecureDesc: 'Step 7: Your Server validates state and extracts authorization code.',
+    pkceDesc:     'Step 7: Your Server validates state and prepares code_verifier for token exchange.',
+    insecureResult: 'State check passes; server proceeds to /token.',
+    pkceResult:     'State check passes; secure exchange now requires verifier proof.',
   },
-
-  // ── Step 5: Server POSTs to /token (Track 2, Server → Lucid) ─────────────────
   {
-    type: 'packet', track: 2, dir: 'right',
+    type: 'packet', track: 3, dir: 'right',
     packetClass: 'sim-pkt-token-req', label: 'POST /token',
     flightMs: 2800,
-    desc: 'Your Server exchanges code for token (server-to-server). Click to intercept.',
+    desc: 'Track 3: Your Server exchanges code with Lucid (server-to-server only).',
     actorFrom: 'server', actorTo: 'lucid',
     insecure: {
       canTriggerPwned: false,
-      flashIcon: '\u26a0', flashTitle: 'Token request intercepted',
-      flashBody: 'client_secret is masked — lives server-side only. You see the structure, not the value.',
+      flashIcon: '\u26a0', flashTitle: 'Token request observed',
+      flashBody: 'This is the only direct server-to-server channel.',
       resultLabel: 'PARTIAL', resultLabelClass: 'sim-result-label-attack',
-      resultTitle: 'Partial exposure \u2014 client_secret stays server-side',
+      resultTitle: 'Exchange does not touch browser tracks',
       resultPayload:
-`POST /token (server \u2192 Lucid):
+`Track 3 (Server → Lucid):
+POST /token
   grant_type=authorization_code
   code=SplxlOBeZQQYbYS6WxSbIA
-  client_id=abc123
-  client_secret=\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 \u2190 server-side only
-  redirect_uri=https://myapp.example.com/callback
-
-Auth Code flow was designed to keep the
-secret out of the browser. Token incoming.`,
+  client_id=abc123`,
     },
     pkce: {
-      flashIcon: '\ud83d\udee1', flashTitle: 'Token request intercepted',
-      flashBody: 'code_verifier in the POST proves this server originated the flow. You can\u2019t forge it.',
+      flashIcon: '\ud83d\udee1', flashTitle: 'Verifier appears only on Track 3',
+      flashBody: 'code_verifier first appears here, never on browser-touching tracks.',
       resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
-      resultTitle: 'PKCE: code_verifier cryptographically proves server identity',
+      resultTitle: 'PKCE proof stays server-to-server',
       resultPayload:
-`POST /token (server \u2192 Lucid):
-  grant_type=authorization_code
+`Track 3 (Server → Lucid):
+POST /token
   code=SplxlOBeZQQYbYS6WxSbIA
-  code_verifier=dBjftJeZ4gRSUqXfDiZBMCKl5NnG3tPr\u2026
-  client_id=abc123
-
-Lucid: SHA-256(code_verifier) == code_challenge?
-  Yes \u2192 token issued to this server only.
-  No  \u2192 invalid_grant.
-
-Only the server that generated step 1 has this.`,
+  code_verifier=dBjftJeZ4gRSUqXfDiZBMCKl5NnG3tPr...`,
     },
   },
-
-  // ── Step 6: Lucid returns access_token (Track 2, Lucid → Server) ─────────────
   {
-    type: 'packet', track: 2, dir: 'left',
+    type: 'packet', track: 3, dir: 'left',
     packetClass: 'sim-pkt-token', label: 'access_token',
     flightMs: 2800,
-    desc: 'Token returned to Your Server only. Click to see what you could steal.',
+    desc: 'Track 3: Lucid responds with access_token (and refresh_token) to Your Server.',
     actorFrom: 'lucid', actorTo: 'server',
     insecure: {
       canTriggerPwned: true,
       flashIcon: '\ud83d\udc80', flashTitle: 'TOKEN STOLEN',
-      flashBody: 'The token is the prize. Full API access granted to the attacker.',
+      flashBody: 'Access token captured. Attacker now has API authority.',
       resultLabel: 'STOLEN', resultLabelClass: 'sim-result-label-attack',
-      resultTitle: 'Token exposure \u2014 attack complete',
+      resultTitle: 'Token exposure ends the game',
       resultPayload:
-`access_token: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9\u2026
+`access_token: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
 token_type: Bearer
-expires_in: 3600
-scope: account.user account.document
-
-Full REST API access.
-GET /users  Authorization: Bearer eyJ\u2026`,
+expires_in: 3600`,
     },
     pkce: {
       canTriggerDefended: true,
-      flashIcon: '\ud83d\udee1', flashTitle: 'Token stays server-side',
-      flashBody: 'Issued only to the server that proved code_verifier. Browser never sees it.',
+      flashIcon: '\ud83d\udee1', flashTitle: 'Token safely delivered',
+      flashBody: 'PKCE prevented replay; token is issued only after verifier check.',
       resultLabel: 'SECURE', resultLabelClass: 'sim-result-label-defense',
-      resultTitle: 'Defense complete \u2014 token server-only',
+      resultTitle: 'Token never crosses browser tracks 1 or 2',
       resultPayload:
-`Token returned to Your Server only.
-Browser: never transmitted this token.
-Attacker: blocked at step 3 by PKCE.
+`Track 3 (Lucid → Server):
+access_token issued after verifier proof.
 
-PKCE made the code cryptographically bound
-to one party. All attack vectors neutralized.`,
+Browser tracks never carry access_token.`,
     },
   },
 ];
@@ -3794,13 +4030,14 @@ const SIM_PWNED = {
 const SIM_DEFENDED = {
   defenses: [
     { label: 'Step 1', text: 'code_verifier + code_challenge generated server-side \u2014 verifier never transmitted' },
-    { label: 'Wave 1', text: 'code_challenge in 302 redirect \u2014 code is pre-bound before it exists' },
-    { label: 'Wave 2', text: 'code_verifier required at /token \u2014 Lucid rejects exchange without proof of key' },
-    { label: 'Step 4', text: 'State/CSRF validated \u2014 server-internal, not interceptable over the wire' },
-    { label: 'Wave 3', text: 'code_verifier proves server identity \u2014 only the originator can complete exchange' },
-    { label: 'Wave 4', text: 'Token issued to Your Server only \u2014 browser never sees it, nothing to steal' },
+    { label: 'Wave 1', text: '302 redirect includes code_challenge, pre-binding the future code' },
+    { label: 'Wave 2', text: 'Browser \u2192 Lucid request is visible, but verifier remains secret' },
+    { label: 'Wave 3', text: 'Code intercepted on Lucid \u2192 Browser redirect is unusable without verifier' },
+    { label: 'Wave 4', text: 'Browser \u2192 Server callback still carries code only, not verifier' },
+    { label: 'Wave 5', text: 'code_verifier appears only on Track 3 POST /token server-to-server' },
+    { label: 'Wave 6', text: 'access_token returns on Track 3 only \u2014 never on browser tracks' },
   ],
-  lesson: 'PKCE converts the authorization code into a credential cryptographically bound to its originator. Even a perfect man-in-the-middle attack fails at wave 2.',
+  lesson: 'Triangle layout makes trust boundaries explicit: browser tracks can leak code, but only Track 3 can prove possession with code_verifier.',
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -3810,6 +4047,7 @@ let simFlightTimer      = null;
 let simLocked           = true;
 let simRunning          = false;
 let simEverIntercepted  = false; // true only if user clicked at least one packet this run
+const SIM_PACKET_WIDTH_PX = 116; // matches enlarged CSS packet size for consistent travel endpoints
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function simEsc(s) {
@@ -3819,8 +4057,8 @@ function simEsc(s) {
 }
 
 function simSetOverlay(name) {
-  // name: 'locked' | 'pwned' | 'defended' | 'missed' | 'flash' | 'none'
-  const map = { locked: 'sim-overlay-locked', pwned: 'sim-overlay-pwned',
+  // name: 'locked' | 'start' | 'pwned' | 'defended' | 'missed' | 'flash' | 'none'
+  const map = { locked: 'sim-overlay-locked', start: 'sim-overlay-start', pwned: 'sim-overlay-pwned',
                 defended: 'sim-overlay-defended', missed: 'sim-overlay-missed',
                 flash: 'sim-overlay-flash' };
   Object.entries(map).forEach(([key, id]) => {
@@ -3831,6 +4069,62 @@ function simSetOverlay(name) {
 
 function simActorEl(name) { return document.getElementById(`sim-actor-${name}`); }
 
+function simActorAnchor(name, track) {
+  const lane = document.getElementById('sim-swimlane');
+  const actor = simActorEl(name);
+  if (!lane || !actor) return { x: 0, y: 0 };
+
+  const laneRect = lane.getBoundingClientRect();
+  const r = actor.getBoundingClientRect();
+
+  if (track === 3) {
+    if (name === 'server') return { x: r.right - laneRect.left, y: (r.top + r.height / 2) - laneRect.top };
+    if (name === 'lucid') return { x: r.left - laneRect.left, y: (r.top + r.height / 2) - laneRect.top };
+  }
+
+  if (name === 'browser') return { x: (r.left + r.width / 2) - laneRect.left, y: r.bottom - laneRect.top };
+  return { x: (r.left + r.width / 2) - laneRect.left, y: r.top - laneRect.top };
+}
+
+function simLayoutTriangleTracks() {
+  const track1 = document.getElementById('sim-track-1');
+  const track2 = document.getElementById('sim-track-2');
+  if (!track1 || !track2) return;
+
+  const browser = simActorAnchor('browser', 1);
+  const server  = simActorAnchor('server', 1);
+  const lucid   = simActorAnchor('lucid', 2);
+
+  function layoutDiagonal(trackEl, from, to) {
+    const left = Math.min(from.x, to.x);
+    const top = Math.min(from.y, to.y);
+    const width = Math.max(1, Math.abs(to.x - from.x));
+    const height = Math.max(1, Math.abs(to.y - from.y));
+
+    trackEl.style.left = `${left}px`;
+    trackEl.style.top = `${top}px`;
+    trackEl.style.width = `${width}px`;
+    trackEl.style.height = `${height}px`;
+
+    const sx = from.x - left;
+    const sy = from.y - top;
+    const ex = to.x - left;
+    const ey = to.y - top;
+    const len = Math.hypot(ex - sx, ey - sy);
+    const angle = (Math.atan2(ey - sy, ex - sx) * 180) / Math.PI;
+
+    const line = trackEl.querySelector('.sim-track-line');
+    if (!line) return;
+    line.style.left = `${sx}px`;
+    line.style.top = `${sy}px`;
+    line.style.width = `${len}px`;
+    line.style.transform = `rotate(${angle}deg)`;
+  }
+
+  layoutDiagonal(track1, browser, server);
+  layoutDiagonal(track2, browser, lucid);
+}
+
 function simClearActors() {
   ['browser','server','lucid'].forEach(n => {
     const el = simActorEl(n);
@@ -3840,15 +4134,63 @@ function simClearActors() {
 
 function simCancelFlight() {
   if (simFlightTimer) { clearTimeout(simFlightTimer); simFlightTimer = null; }
-  ['sim-packet-1', 'sim-packet-2'].forEach(id => {
+  ['sim-packet-1', 'sim-packet-2', 'sim-packet-3'].forEach(id => {
     const p = document.getElementById(id);
     if (!p) return;
     p.style.transition  = 'none';
-    p.style.left        = '0%';
+    p.style.left        = '0px';
+    p.style.transform   = 'translate(0, -50%)';
     p.classList.remove('sim-packet-visible', 'sim-packet-clickable');
     p.style.pointerEvents = 'none';
     p.replaceWith(p.cloneNode(true)); // remove all event listeners
   });
+}
+
+function simStepSummary(index) {
+  const labels = [
+    'Generate state / PKCE secrets',
+    '302 redirect to Lucid',
+    'GET /authorize',
+    'User consent at Lucid',
+    '302 with code to browser',
+    'GET /callback delivery',
+    'Validate state + parse code',
+    'POST /token exchange',
+    'access_token response',
+  ];
+  return labels[index] || `Step ${index + 1}`;
+}
+
+function simStepDesc(step, index) {
+  // Replaces minimal "Step X / 6" text with persistent contextual descriptions.
+  // Why: the status bar should always communicate what this specific step means.
+  if (step.type === 'internal') return simPkceOn ? step.pkceDesc : step.insecureDesc;
+  return step.desc || simStepSummary(index);
+}
+
+function simRenderIdleHint() {
+  const resEl = document.getElementById('sim-result-content');
+  if (!resEl) return;
+  resEl.innerHTML = `<div class="sim-result-idle"><span class="sim-idle-text">↑ Click a glowing packet to intercept it</span></div>`;
+}
+
+function simRenderStepStrip() {
+  const strip = document.getElementById('sim-step-strip');
+  if (!strip) return;
+  strip.innerHTML = SIM_STEPS.map((_, i) => `
+    <div class="sim-step-card" id="sim-step-card-${i}">
+      <div class="sim-step-num">Step ${i + 1}</div>
+      <div class="sim-step-text">${simEsc(simStepSummary(i))}</div>
+    </div>`).join('');
+}
+
+function simHighlightStep(index) {
+  for (let i = 0; i < SIM_STEPS.length; i += 1) {
+    const card = document.getElementById(`sim-step-card-${i}`);
+    if (!card) continue;
+    card.classList.toggle('sim-step-card-active', i === index);
+    card.classList.toggle('sim-step-card-done', i < index);
+  }
 }
 
 // ── Unlock ─────────────────────────────────────────────────────────────────────
@@ -3861,23 +4203,17 @@ function simUnlock() {
   const lock = document.getElementById('sim-lock-icon');
   if (lock) lock.remove();
 
-  simSetOverlay('none');
-  simShowStartScreen();
+  simRenderStepStrip();
+  simRenderIdleHint();
+  simSetOverlay('start');
+  simUpdateStartOverlayMode();
 }
 
 // ── Start screen ───────────────────────────────────────────────────────────────
-function simShowStartScreen() {
-  const el = document.getElementById('sim-result-content');
-  if (!el) return;
-  el.innerHTML = `
-    <div class="sim-start-prompt">
-      <div class="sim-start-title">OAuth Packet Intercept</div>
-      <div class="sim-start-sub">You are the attacker. Click packets in flight to intercept them.<br>
-        Toggle <strong>With&nbsp;PKCE</strong> to see how each attack is blocked.</div>
-      <button class="sim-btn-start" id="sim-btn-start">Start attack \u2192</button>
-    </div>`;
-  const startBtn = document.getElementById('sim-btn-start');
-  if (startBtn) startBtn.addEventListener('click', simStartRun);
+function simUpdateStartOverlayMode() {
+  const mode = document.getElementById('sim-start-mode');
+  if (!mode) return;
+  mode.textContent = `Starting mode: ${simPkceOn ? 'With PKCE' : 'Insecure'}`;
 }
 
 // ── PKCE toggle ────────────────────────────────────────────────────────────────
@@ -3893,6 +4229,7 @@ function simTogglePkce() {
     badge.textContent = simPkceOn ? 'SECURED' : 'INSECURE';
     badge.className   = 'sim-mode-badge ' + (simPkceOn ? 'sim-mode-secure' : 'sim-mode-insecure');
   }
+  simUpdateStartOverlayMode();
   if (simRunning) {
     simCancelFlight();
     simClearActors();
@@ -3907,6 +4244,8 @@ function simStartRun() {
   simEverIntercepted = false;
   simSetOverlay('none');
   simClearActors();
+  simRenderStepStrip();
+  simRenderIdleHint();
   simRunStep(0);
 }
 
@@ -3926,32 +4265,32 @@ function simRunStep(index) {
 
   const step = SIM_STEPS[index];
   simWaveIndex = index;
+  simHighlightStep(index);
 
   const hudEl  = document.getElementById('sim-hud-wave');
   const descEl = document.getElementById('sim-wave-desc');
-  const resEl  = document.getElementById('sim-result-content');
+  if (descEl) descEl.textContent = simStepDesc(step, index);
 
   if (step.type === 'internal') {
-    // ── Internal server-only pause ────────────────────────────────────────────
+    // Replaces old internal text injection in result panel.
+    // Why: internal guidance now lives in the persistent step strip + status bar.
     if (hudEl)  hudEl.textContent  = `Step ${index + 1} / ${SIM_STEPS.length}`;
-    if (descEl) descEl.textContent = simPkceOn ? step.pkceDesc : step.insecureDesc;
-    if (resEl)  resEl.innerHTML    = '';
     simRunInternal(step, () => simRunStep(index + 1));
   } else {
     // ── Packet wave ───────────────────────────────────────────────────────────
-    // Count only packet steps for "Wave X / 4" display
+    // Count only packet steps for "Wave X / N" display
     const waveNum     = SIM_STEPS.slice(0, index + 1).filter(s => s.type === 'packet').length;
     const totalWaves  = SIM_STEPS.filter(s => s.type === 'packet').length;
     if (hudEl)  hudEl.textContent  = `Wave ${waveNum} / ${totalWaves}`;
-    if (descEl) descEl.textContent = step.desc;
-    if (resEl)  resEl.innerHTML    = '';
+    // Slightly faster later waves increase tension while staying readable.
+    const flightMs = waveNum >= 3 ? 2200 : step.flightMs;
 
     simClearActors();
     const fromEl = simActorEl(step.actorFrom);
     if (fromEl) fromEl.classList.add('sim-actor-arrive');
     setTimeout(() => { if (fromEl) fromEl.classList.remove('sim-actor-arrive'); }, 400);
 
-    simLaunchPacket(step, index);
+    simLaunchPacket(step, index, flightMs);
   }
 }
 
@@ -3961,14 +4300,6 @@ function simRunInternal(step, onDone) {
   const actorEl = simActorEl(step.actor);
   if (actorEl) actorEl.classList.add('sim-actor-pulse');
 
-  const resEl  = document.getElementById('sim-result-content');
-  const result = simPkceOn ? step.pkceResult : step.insecureResult;
-  if (resEl) resEl.innerHTML = `
-    <div class="sim-result-internal">
-      <div class="sim-result-label sim-result-label-internal">SERVER INTERNAL</div>
-      <div class="sim-result-text">${simEsc(result)}</div>
-    </div>`;
-
   simFlightTimer = setTimeout(() => {
     simFlightTimer = null;
     if (actorEl) actorEl.classList.remove('sim-actor-pulse');
@@ -3977,22 +4308,50 @@ function simRunInternal(step, onDone) {
 }
 
 // ── Packet launch ──────────────────────────────────────────────────────────────
-function simLaunchPacket(wave, index) {
+function simLaunchPacket(wave, index, flightMs) {
+  simLayoutTriangleTracks();
+
   // Re-fetch packet element (simCancelFlight cloneNode replaces the DOM element)
   const pktEl   = document.getElementById(`sim-packet-${wave.track}`);
   const trackEl = document.getElementById(`sim-track-${wave.track}`);
   if (!pktEl || !trackEl) return;
 
-  pktEl.textContent     = wave.label;
-  pktEl.className       = `sim-packet ${wave.packetClass}`;
-  pktEl.style.left      = wave.dir === 'right' ? '0%' : 'calc(100% - 82px)';
+  const isHorizontal = wave.track === 3;
+  const trackRect = trackEl.getBoundingClientRect();
+  const laneRect = document.getElementById('sim-swimlane').getBoundingClientRect();
+  const startAtRight = wave.dir === 'left';
+  const dx = Math.max(0, trackRect.width - SIM_PACKET_WIDTH_PX);
+  const endLeftPx = startAtRight ? 0 : dx;
+
+  const fromAnchor = simActorAnchor(wave.actorFrom, wave.track);
+  const toAnchor = simActorAnchor(wave.actorTo, wave.track);
+  const startLocal = { x: fromAnchor.x - (trackRect.left - laneRect.left), y: fromAnchor.y - (trackRect.top - laneRect.top) };
+  const endLocal = { x: toAnchor.x - (trackRect.left - laneRect.left), y: toAnchor.y - (trackRect.top - laneRect.top) };
+
+  pktEl.textContent      = wave.label;
+  pktEl.className        = `sim-packet ${wave.packetClass}`;
   pktEl.style.transition = 'none';
   pktEl.style.pointerEvents = 'auto';
+  pktEl.style.left       = isHorizontal ? `${startAtRight ? dx : 0}px` : '0px';
+  pktEl.style.transform  = isHorizontal
+    ? 'translate(0, -50%)'
+    : `translate(${startLocal.x}px, calc(${startLocal.y}px - 50%))`;
 
   // In insecure mode, make packet glow and clickable
-  if (!simPkceOn) pktEl.classList.add('sim-packet-clickable');
+  if (!simPkceOn) {
+    pktEl.classList.add('sim-packet-clickable');
+    const lane = document.getElementById('sim-swimlane');
+    if (lane) {
+      lane.classList.remove('sim-swimlane-alert');
+      // Force reflow so repeated pulses retrigger cleanly each wave.
+      void lane.offsetWidth;
+      lane.classList.add('sim-swimlane-alert');
+    }
+  }
 
-  const endPos = wave.dir === 'right' ? 'calc(100% - 82px)' : '0%';
+  const endTransform = isHorizontal
+    ? 'translate(0, -50%)'
+    : `translate(${endLocal.x}px, calc(${endLocal.y}px - 50%))`;
 
   const onIntercept = () => {
     if (!pktEl.classList.contains('sim-packet-visible')) return; // guard double-click
@@ -4003,21 +4362,33 @@ function simLaunchPacket(wave, index) {
     pktEl.style.pointerEvents = 'none';
     pktEl.classList.remove('sim-packet-clickable');
     // Freeze at current visual position
-    const trackRect = trackEl.getBoundingClientRect();
+    const interceptTrackRect = trackEl.getBoundingClientRect();
     const pktRect   = pktEl.getBoundingClientRect();
-    pktEl.style.left = `${pktRect.left - trackRect.left}px`;
+    const frozenTransform = getComputedStyle(pktEl).transform;
+    if (isHorizontal) {
+      pktEl.style.left = `${pktRect.left - interceptTrackRect.left}px`;
+      pktEl.style.transform = 'translate(0, -50%)';
+    } else {
+      pktEl.style.left = '0px';
+      pktEl.style.transform = frozenTransform === 'none' ? 'translate(0, 0)' : frozenTransform;
+    }
     simHandleIntercept(wave, pktEl, index);
   };
   pktEl.addEventListener('click', onIntercept);
 
   requestAnimationFrame(() => requestAnimationFrame(() => {
     pktEl.classList.add('sim-packet-visible');
-    pktEl.style.transition = `left ${wave.flightMs}ms linear`;
-    pktEl.style.left = endPos;
+    if (isHorizontal) {
+      pktEl.style.transition = `left ${flightMs}ms linear`;
+      pktEl.style.left = `${endLeftPx}px`;
+    } else {
+      pktEl.style.transition = `transform ${flightMs}ms linear`;
+      pktEl.style.transform = endTransform;
+    }
     simFlightTimer = setTimeout(() => {
       pktEl.removeEventListener('click', onIntercept);
       simPacketLanded(wave, pktEl, index);
-    }, wave.flightMs + 60);
+    }, flightMs + 60);
   }));
 }
 
@@ -4090,8 +4461,7 @@ function simPacketLanded(step, pktEl, index) {
     setTimeout(() => { if (toEl) toEl.classList.remove('sim-actor-arrive'); }, 500);
   }
 
-  const resEl = document.getElementById('sim-result-content');
-  if (resEl) resEl.innerHTML = `<div class="sim-result-missed"><span class="sim-missed-text">Packet landed unintercepted \u2014 continuing\u2026</span></div>`;
+  simRenderIdleHint();
 
   simFlightTimer = setTimeout(() => {
     simFlightTimer = null;
@@ -4152,11 +4522,983 @@ function initSimulate() {
   if (replayPwned)    replayPwned.addEventListener('click',    simStartRun);
   if (replayDefended) replayDefended.addEventListener('click', simStartRun);
   if (replayMissed)   replayMissed.addEventListener('click',   simStartRun);
+  const startOverlayBtn = document.getElementById('sim-btn-start-overlay');
+  if (startOverlayBtn) startOverlayBtn.addEventListener('click', simStartRun);
 
   // HUD restart — always visible in the top bar, works at any point in the game
   const hudRestart = document.getElementById('sim-hud-restart');
   if (hudRestart) hudRestart.addEventListener('click', simStartRun);
 
-  // Always unlock immediately — the game is playable regardless of OAuth status
+  // Always unlock on init — the simulation game is educational and playable without
+  // OAuth. updateAuthUI() also calls simUnlock() when REST auth is confirmed, making
+  // that path explicit and intentional rather than relying on this fallback alone.
   simUnlock();
+  simLayoutTriangleTracks();
+  window.addEventListener('resize', simLayoutTriangleTracks);
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SAML IdP MODULE
+// All SAML-related UI logic lives here — isolated from the rest of app.js.
+//
+// Responsibilities:
+//   - View switching (Setup / Flow Animator / Dry Run)
+//   - Config load/save via /api/saml/config
+//   - Certificate regeneration via /api/saml/generate-cert
+//   - Dry-run assertion generation via /api/saml/test-assertion
+//   - Flow animation (step reveal, active/done/fault states)
+//   - Fault injection selector → step annotations
+//   - SSO trigger (opens /saml/sso in new tab)
+//   - Claude Narrative via /api/saml/narrative
+//   - Copy-to-clipboard for all read-only fields
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── State ──────────────────────────────────────────────────────────────────────
+let _samlConfig = null;        // cached config from server
+let _samlLastXml = '';         // last generated XML for flow animator step 4
+let _samlAnimating = false;    // prevent double-animation
+let _samlParkedPacket = null;  // packet element currently sitting at its destination, waiting for Next click
+
+// Field annotation lookup — used by both dry-run table and flow animator
+const SAML_FIELD_ANNOTATIONS = {
+  'NameID':        'Unique identifier for the user. Lucid maps this to a user account by email.',
+  'Issuer':        "The IdP's entity ID. Lucid checks this against the registered IdP to verify it trusts this sender.",
+  'NotBefore':     'Assertion not valid before this time. Small clock skew is normal; large gaps cause failures.',
+  'NotOnOrAfter':  'Assertion expires at this time. Lucid rejects assertions where this timestamp is in the past.',
+  'ACS Recipient': 'The URL this assertion is addressed to. Lucid verifies it matches its registered ACS URL.',
+  'SP Entity ID':  "The audience restriction. Lucid verifies this matches its own entity ID.",
+  'User.email':    'Required attribute. Lucid uses this to find and authenticate the user account.',
+  'User.FirstName':'Display name attribute — populates the user profile.',
+  'User.LastName': 'Display name attribute — populates the user profile.',
+};
+
+// Fault annotation lookup — which step gets the callout and what check fails
+const SAML_FAULT_ANNOTATIONS = {
+  expired: {
+    step: 6,
+    checkFail: 'saml-check-expiry',
+    callout: 'NotOnOrAfter was set 5 minutes in the past. Lucid will reject this assertion with "SAML assertion has expired". Increase the validity window or fix the IdP clock.',
+  },
+  wrong_cert: {
+    step: 6,
+    checkFail: 'saml-check-sig',
+    callout: 'The assertion was signed with a throwaway key that Lucid does not have registered. Lucid will reject this with "Signature verification failed". Update the certificate in Lucid\'s admin panel after regenerating.',
+  },
+  missing_email: {
+    step: 6,
+    checkFail: 'saml-check-email',
+    callout: 'The User.email attribute was omitted. Lucid requires this attribute to map the assertion to an account. Without it, login fails with "Required attribute missing".',
+  },
+  wrong_issuer: {
+    step: 6,
+    checkFail: 'saml-check-issuer',
+    callout: 'The Issuer was set to an unrecognised entity ID. Lucid does not have an IdP registered with this entity ID and will reject the assertion as coming from an unknown IdP.',
+  },
+  bad_acs: {
+    step: 5,
+    checkFail: null,
+    callout: 'The SAMLResponse will be POSTed to a deliberately wrong ACS URL. The browser will hit a URL that Lucid does not own — Lucid\'s ACS handler never receives the assertion and the user sees a network or 404 error.',
+  },
+};
+
+
+// ── View switching ─────────────────────────────────────────────────────────────
+
+function samlShowView(viewName) {
+  $$('.saml-view').forEach(v => v.classList.remove('active'));
+  const target = document.getElementById('saml-view-' + viewName);
+  if (target) target.classList.add('active');
+
+  // Update breadcrumb
+  const labels = { setup: 'SAML IdP \u203a Setup', flow: 'SAML IdP \u203a Flow Animator', dryrun: 'SAML IdP \u203a Dry Run' };
+  const bc = document.getElementById('breadcrumb-saml-path');
+  if (bc) bc.textContent = labels[viewName] || 'SAML IdP';
+
+  if (viewName === 'setup') samlLoadConfig();
+  if (viewName === 'flow')  samlPopulateStep3();
+}
+
+
+// ── Config load / save ─────────────────────────────────────────────────────────
+
+async function samlLoadConfig() {
+  try {
+    const res = await fetch('/api/saml/config');
+    _samlConfig = await res.json();
+    samlRenderConfig(_samlConfig);
+  } catch (e) {
+    console.error('SAML config load failed', e);
+  }
+}
+
+function samlRenderConfig(cfg) {
+  if (!cfg) return;
+
+  samlSetField('saml-idp-sso-url',   cfg.idp_sso_url   || 'http://localhost:8000/saml/sso');
+  samlSetField('saml-idp-entity-id', cfg.idp_entity_id  || 'http://localhost:8000/saml/metadata');
+  samlSetField('saml-idp-cert',      cfg.cert_pem        || '(no certificate yet — click Regenerate)');
+
+  const certIcon  = document.getElementById('saml-cert-icon');
+  const certLabel = document.getElementById('saml-cert-label');
+  if (cfg.cert_pem) {
+    if (certIcon)  { certIcon.textContent = '\u25cf'; certIcon.className = 'saml-cert-icon cert-ok'; }
+    if (certLabel) certLabel.textContent = 'Certificate valid \u00b7 expires ' + (cfg.cert_not_after ? cfg.cert_not_after.substring(0, 10) : 'unknown');
+  } else {
+    if (certIcon)  { certIcon.textContent = '\u25cf'; certIcon.className = 'saml-cert-icon cert-missing'; }
+    if (certLabel) certLabel.textContent = 'No certificate \u2014 click Regenerate to generate one.';
+  }
+
+  const meta = document.getElementById('saml-cert-meta');
+  if (meta && cfg.cert_fingerprint) {
+    meta.textContent = 'SHA-256: ' + cfg.cert_fingerprint;
+  }
+
+  // Only set editable fields if empty (don't overwrite user typing)
+  const fields = [
+    ['saml-acs-url',          cfg.acs_url            || ''],
+    ['saml-sp-entity-id',     cfg.sp_entity_id        || ''],
+    ['saml-attr-email',       cfg.attr_email          || 'testuser@example.com'],
+    ['saml-attr-first',       cfg.attr_first_name     || 'Test'],
+    ['saml-attr-last',        cfg.attr_last_name      || 'User'],
+    ['saml-validity-minutes', String(cfg.validity_minutes || 10)],
+  ];
+  fields.forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if (el && !el.value) el.value = val;
+  });
+
+  const warning = document.getElementById('saml-https-warning');
+  if (warning) {
+    warning.classList.toggle('hidden', !(cfg.idp_sso_url || '').startsWith('http://'));
+  }
+}
+
+function samlSetField(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.value = value;
+  else el.textContent = value;
+}
+
+async function samlSaveConfig() {
+  const btn    = document.getElementById('btn-saml-save-config');
+  const status = document.getElementById('saml-save-status');
+  if (btn) btn.disabled = true;
+  if (status) { status.textContent = 'Saving\u2026'; status.className = 'saml-save-status'; }
+
+  const emailVal = (document.getElementById('saml-attr-email')?.value || '').trim();
+  const body = {
+    acs_url:          (document.getElementById('saml-acs-url')?.value          || '').trim(),
+    sp_entity_id:     (document.getElementById('saml-sp-entity-id')?.value      || '').trim(),
+    attr_email:       emailVal,
+    attr_first_name:  (document.getElementById('saml-attr-first')?.value        || '').trim(),
+    attr_last_name:   (document.getElementById('saml-attr-last')?.value         || '').trim(),
+    name_id:          emailVal,
+    validity_minutes: parseInt(document.getElementById('saml-validity-minutes')?.value || '10', 10),
+  };
+
+  try {
+    const res = await fetch('/api/saml/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    _samlConfig = await res.json();
+    if (status) { status.textContent = '\u2713 Saved'; status.className = 'saml-save-status'; }
+    setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+    samlPopulateStep3();
+  } catch (e) {
+    if (status) { status.textContent = 'Save failed \u2014 check console'; status.className = 'saml-save-status error'; }
+    console.error('SAML save failed', e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+
+// ── Certificate regeneration ───────────────────────────────────────────────────
+
+async function samlRegenCert() {
+  const btn       = document.getElementById('btn-regen-cert');
+  const certLabel = document.getElementById('saml-cert-label');
+  if (btn) btn.disabled = true;
+  if (certLabel) certLabel.textContent = 'Generating new certificate\u2026';
+
+  try {
+    const res  = await fetch('/api/saml/generate-cert', { method: 'POST' });
+    const data = await res.json();
+    _samlConfig = data.config;
+    samlRenderConfig(_samlConfig);
+    if (certLabel) certLabel.textContent = '\u2713 New certificate generated \u2014 update it in Lucid\'s admin panel!';
+  } catch (e) {
+    if (certLabel) certLabel.textContent = 'Certificate generation failed \u2014 check console';
+    console.error('SAML cert regen failed', e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+
+// ── Copy to clipboard ──────────────────────────────────────────────────────────
+
+function samlCopyField(targetId) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const text = (el.value !== undefined) ? el.value : el.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.btn-copy-saml[data-target="' + targetId + '"]');
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = '\u2713 Copied';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    }
+  }).catch(err => console.error('Copy failed', err));
+}
+
+function samlCopyText(text, btnEl) {
+  navigator.clipboard.writeText(text).then(() => {
+    if (btnEl) {
+      const orig = btnEl.textContent;
+      btnEl.textContent = '\u2713 Copied';
+      setTimeout(() => { btnEl.textContent = orig; }, 1500);
+    }
+  }).catch(err => console.error('Copy failed', err));
+}
+
+
+// ── Flow Animator ──────────────────────────────────────────────────────────────
+
+function samlPopulateStep3() {
+  const container = document.getElementById('saml-step3-fields');
+  if (!container) return;
+  const cfg = _samlConfig || {};
+  const fields = [
+    ['User.email',     cfg.attr_email      || 'testuser@example.com'],
+    ['User.FirstName', cfg.attr_first_name || 'Test'],
+    ['User.LastName',  cfg.attr_last_name  || 'User'],
+    ['NameID',         cfg.name_id         || cfg.attr_email || 'testuser@example.com'],
+  ];
+  container.innerHTML = fields.map(function(f) {
+    return '<div class="saml-step-field">'
+      + '<span class="saml-step-field-key">' + samlEsc(f[0]) + '</span>'
+      + '<span class="saml-step-field-val">' + samlEsc(f[1]) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+async function samlAnimate() {
+  if (_samlAnimating) return;
+  _samlAnimating = true;
+
+  const faultSel  = document.getElementById('saml-fault-select');
+  const fault     = (faultSel && faultSel.value) ? faultSel.value : null;
+  const faultInfo = fault ? SAML_FAULT_ANNOTATIONS[fault] : null;
+  const animBtn   = document.getElementById('btn-saml-animate');
+  const nextBtn   = document.getElementById('btn-saml-next');
+  if (animBtn) animBtn.disabled = true;
+  if (nextBtn) nextBtn.classList.add('hidden');   // ensure Next is hidden at start of each run
+
+  // Reset all steps
+  for (let i = 1; i <= 6; i++) {
+    const step = document.getElementById('saml-step-' + i);
+    if (step) step.className = 'saml-step';
+    const callout = document.getElementById('saml-fault-callout-' + i);
+    if (callout) { callout.textContent = ''; callout.classList.add('hidden'); }
+  }
+
+  // Reset packets — hide immediately without transition
+  _samlParkedPacket = null;
+  [1, 2].forEach(function(n) {
+    const pkt = document.getElementById('saml-packet-' + n);
+    if (!pkt) return;
+    pkt.style.transition = 'none';
+    pkt.classList.remove('saml-packet-visible', 'saml-packet-fault');
+  });
+
+  // Reset actor highlights
+  ['browser','lucid','idp'].forEach(function(a) {
+    const el = document.getElementById('saml-actor-' + a);
+    if (el) el.classList.remove('saml-actor-arrive');
+  });
+
+  // Reset validation checks
+  ['saml-check-sig','saml-check-issuer','saml-check-audience','saml-check-expiry','saml-check-email'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('check-pass', 'check-fail');
+    const icon = el.querySelector('.saml-check-icon');
+    if (icon) icon.textContent = '\u25cc';
+  });
+
+  // ── Step 1: User visits Lucid ──────────────────────────────────────────────
+  samlActivateStep(1);
+  await samlDelay(800);                                         // read the step card
+  await samlSendPacket(1, 'right', 'GET lucid.app', false, 'lucid'); // lands at Lucid SP
+  await samlWaitForNext();                                      // wait for user to click Next
+  const step1 = document.getElementById('saml-step-1');
+  if (step1) { step1.classList.remove('step-active'); step1.classList.add('step-done'); }
+
+  // ── Step 2: Lucid builds AuthnRequest → redirects browser to IdP ───────────
+  samlActivateStep(2);
+  await samlDelay(800);                                         // read the step card
+  await samlSendPacket(1, 'left', '302 → IdP', false, 'browser'); // redirect lands at Browser
+  await samlDelay(600);                                         // Browser auto-follows the redirect
+  await samlSendPacket(1, 'right', 'AuthnRequest', false, null); // Browser sends GET — passes through toward IdP
+  await samlDelay(200);
+  await samlSendPacket(2, 'right', 'AuthnRequest', false, 'idp'); // …continues to IdP (same request, two tracks)
+  await samlWaitForNext();
+  const step2 = document.getElementById('saml-step-2');
+  if (step2) { step2.classList.remove('step-active'); step2.classList.add('step-done'); }
+
+  // ── Step 3: This App (IdP) receives the AuthnRequest ───────────────────────
+  samlActivateStep(3);
+  await samlWaitForNext();
+  const step3 = document.getElementById('saml-step-3');
+  if (step3) { step3.classList.remove('step-active'); step3.classList.add('step-done'); }
+
+  // ── Step 4: IdP builds & signs the SAML assertion ──────────────────────────
+  samlActivateStep(4);
+  await samlDelay(500);
+  try {
+    const res  = await fetch('/api/saml/test-assertion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fault: fault }),
+    });
+    const data = await res.json();
+    _samlLastXml = data.pretty_xml || '';
+    const preview = document.getElementById('signed-assertion-preview');
+    if (preview) preview.textContent = _samlLastXml.substring(0, 3000);
+  } catch (e) {
+    console.error('SAML dry run during animate failed', e);
+  }
+  const isFaultEarly = faultInfo && (faultInfo.step === 4);
+  await samlSendPacket(2, 'left', 'SAMLResponse', isFaultEarly, 'browser'); // IdP → Browser
+  await samlWaitForNext();
+  const step4 = document.getElementById('saml-step-4');
+  if (step4) { step4.classList.remove('step-active'); step4.classList.add('step-done'); }
+
+  // ── Step 5: Browser auto-submits assertion to Lucid ACS ────────────────────
+  samlActivateStep(5);
+  await samlDelay(800);
+  const isFaultStep5 = faultInfo && (faultInfo.step === 5);
+  await samlSendPacket(1, 'right', 'POST ACS', isFaultStep5, 'lucid'); // Browser → Lucid SP
+  await samlWaitForNext();
+  const step5 = document.getElementById('saml-step-5');
+  if (faultInfo && faultInfo.step === 5) {
+    if (step5) { step5.classList.remove('step-active'); step5.classList.add('step-fault'); }
+    const callout5 = document.getElementById('saml-fault-callout-5');
+    if (callout5) { callout5.textContent = faultInfo.callout; callout5.classList.remove('hidden'); }
+  } else {
+    if (step5) { step5.classList.remove('step-active'); step5.classList.add('step-done'); }
+  }
+
+  // ── Step 6: Lucid validates the assertion ───────────────────────────────────
+  samlActivateStep(6);
+  await samlDelay(800);                                         // read the step card
+
+  const checks = ['saml-check-sig','saml-check-issuer','saml-check-audience','saml-check-expiry','saml-check-email'];
+  for (let ci = 0; ci < checks.length; ci++) {
+    const checkId = checks[ci];
+    const el = document.getElementById(checkId);
+    if (!el) { await samlDelay(500); continue; }
+    await samlDelay(500);                                       // one check at a time, readable pace
+    const isFaultCheck = faultInfo && faultInfo.checkFail === checkId;
+    el.classList.add(isFaultCheck ? 'check-fail' : 'check-pass');
+    const icon = el.querySelector('.saml-check-icon');
+    if (icon) icon.textContent = isFaultCheck ? '\u2717' : '\u2713';
+  }
+
+  const step6 = document.getElementById('saml-step-6');
+  if (faultInfo && faultInfo.step === 6) {
+    if (step6) { step6.classList.remove('step-active'); step6.classList.add('step-fault'); }
+    const callout6 = document.getElementById('saml-fault-callout-6');
+    if (callout6) { callout6.textContent = faultInfo.callout; callout6.classList.remove('hidden'); }
+  } else {
+    if (step6) { step6.classList.remove('step-active'); step6.classList.add('step-done'); }
+  }
+
+  // Fetch and display Claude narrative
+  try {
+    const narRes  = await fetch('/api/saml/narrative');
+    const narData = await narRes.json();
+    if (narData.narrative) samlShowNarrative(narData.narrative);
+  } catch (e) {
+    console.error('SAML narrative fetch failed', e);
+  }
+
+  // Re-enable Animate button for a fresh run
+  if (animBtn) animBtn.disabled = false;
+  _samlAnimating = false;
+}
+
+function samlActivateStep(num) {
+  const step = document.getElementById('saml-step-' + num);
+  if (step) step.classList.add('step-active');
+  // No scrollIntoView — the swimlane is above the step cards and scrolling
+  // jolts the user away from watching the packet animation.
+}
+
+function samlDelay(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+/**
+ * Animate a labelled packet travelling across a SAML track.
+ * When it lands the destination actor lights up with a persistent green glow
+ * and the packet fades out. Resolves as soon as the packet has faded.
+ *
+ * @param {number}  trackNum   1 = Browser↔Lucid SP, 2 = Lucid SP↔IdP
+ * @param {string}  direction  'right' (→) or 'left' (←)
+ * @param {string}  label      Short text displayed on the packet
+ * @param {boolean} isFault    If true, colours packet red
+ * @param {string}  destActor  Actor id suffix to highlight on landing ('browser','lucid','idp')
+ * @returns {Promise}          Resolves when the packet has faded out at the destination
+ */
+function samlSendPacket(trackNum, direction, label, isFault, destActor) {
+  const PACKET_WIDTH_PX = 90;   // approximate rendered width — used for start/end offsets
+  const TRAVEL_MS       = 1800; // slow enough to read the label comfortably (~2×)
+
+  return new Promise(function(resolve) {
+    const pktEl   = document.getElementById('saml-packet-' + trackNum);
+    const trackEl = document.getElementById('saml-track-'  + trackNum);
+    if (!pktEl || !trackEl) { resolve(); return; }
+
+    // Clear any previous actor highlights
+    ['browser','lucid','idp'].forEach(function(a) {
+      const el = document.getElementById('saml-actor-' + a);
+      if (el) el.classList.remove('saml-actor-arrive');
+    });
+
+    // Hide any previously parked packets
+    [1, 2].forEach(function(n) {
+      const p = document.getElementById('saml-packet-' + n);
+      if (p) { p.style.transition = 'none'; p.classList.remove('saml-packet-visible', 'saml-packet-fault'); }
+    });
+
+    // Set up this packet
+    pktEl.style.transition = 'none';
+    pktEl.textContent = label;
+    if (isFault) pktEl.classList.add('saml-packet-fault');
+
+    // Place at start edge
+    const startLeft = direction === 'right' ? '0%' : ('calc(100% - ' + PACKET_WIDTH_PX + 'px)');
+    const endLeft   = direction === 'right' ? ('calc(100% - ' + PACKET_WIDTH_PX + 'px)') : '0%';
+    pktEl.style.left = startLeft;
+
+    // Double rAF to commit start position before animating
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        pktEl.classList.add('saml-packet-visible');
+        pktEl.style.transition = 'left ' + TRAVEL_MS + 'ms linear';
+        pktEl.style.left = endLeft;
+
+        setTimeout(function() {
+          // Packet has arrived — stop the transition so it stays put
+          pktEl.style.transition = 'none';
+
+          // Light up the destination actor with a persistent glow
+          if (destActor) {
+            const destEl = document.getElementById('saml-actor-' + destActor);
+            if (destEl) destEl.classList.add('saml-actor-arrive');
+          }
+
+          // Store reference so samlWaitForNext can fade it out on click
+          _samlParkedPacket = pktEl;
+
+          resolve(); // samlAnimate immediately awaits samlWaitForNext — packet stays visible
+        }, TRAVEL_MS);
+      });
+    });
+  });
+}
+
+/**
+ * Show the "Next →" button and pause until the user clicks it.
+ * Fades out the currently parked packet, clears actor highlights, then resolves.
+ * @returns {Promise} Resolves on click.
+ */
+function samlWaitForNext() {
+  return new Promise(function(resolve) {
+    const btn = document.getElementById('btn-saml-next');
+    if (!btn) { resolve(); return; }
+
+    btn.classList.remove('hidden');
+
+    function onClick() {
+      btn.removeEventListener('click', onClick);
+      btn.classList.add('hidden');
+
+      // Fade out the parked packet
+      if (_samlParkedPacket) {
+        _samlParkedPacket.style.transition = 'opacity 0.3s';
+        _samlParkedPacket.classList.remove('saml-packet-visible');
+        _samlParkedPacket = null;
+      }
+
+      // Clear actor highlights
+      ['browser','lucid','idp'].forEach(function(a) {
+        const el = document.getElementById('saml-actor-' + a);
+        if (el) el.classList.remove('saml-actor-arrive');
+      });
+
+      resolve();
+    }
+
+    btn.addEventListener('click', onClick);
+  });
+}
+
+
+// ── SSO Trigger ────────────────────────────────────────────────────────────────
+
+function samlTriggerSso() {
+  const faultSel = document.getElementById('saml-fault-select');
+  const fault    = (faultSel && faultSel.value) ? faultSel.value : '';
+  const url      = fault ? '/saml/sso?fault=' + encodeURIComponent(fault) : '/saml/sso';
+  window.open(url, '_blank');
+}
+
+
+// ── Dry Run ────────────────────────────────────────────────────────────────────
+
+async function samlRunDryRun() {
+  const btn       = document.getElementById('btn-saml-dryrun');
+  const result    = document.getElementById('saml-dryrun-result');
+  const loading   = document.getElementById('saml-dryrun-loading');
+  const faultSel  = document.getElementById('saml-dryrun-fault');
+  const fault     = (faultSel && faultSel.value) ? faultSel.value : null;
+
+  if (btn)     btn.disabled = true;
+  if (result)  result.classList.add('hidden');
+  if (loading) loading.classList.remove('hidden');
+
+  try {
+    const res  = await fetch('/api/saml/test-assertion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fault: fault }),
+    });
+    const data = await res.json();
+    _samlLastXml = data.pretty_xml || '';
+
+    // Meta bar
+    const meta = document.getElementById('saml-dryrun-meta');
+    if (meta) {
+      const faultAnnot  = fault ? SAML_FAULT_ANNOTATIONS[fault] : null;
+      const faultDesc   = faultAnnot ? faultAnnot.callout : '';
+      const faultHtml   = fault
+        ? '<span class="fault-label">\u26a0 Fault: ' + samlEsc(fault) + '</span> \u2014 ' + samlEsc(faultDesc)
+        : '<span style="color:var(--saml-green)">\u2713 No fault \u2014 happy path</span>';
+      meta.innerHTML = 'ACS URL: <strong>' + samlEsc(data.acs_url || '(not configured)') + '</strong>'
+        + ' &nbsp;\u00b7&nbsp; Encoded length: <strong>' + (data.encoded_length || 0) + ' bytes</strong>'
+        + ' &nbsp;\u00b7&nbsp; ' + faultHtml;
+    }
+
+    // Fields table
+    const tbody = document.getElementById('saml-dryrun-fields-body');
+    if (tbody && data.step_data) {
+      const sd   = data.step_data;
+      const rows = [
+        ['NameID',        sd.name_id,         false],
+        ['Issuer',        sd.issuer,           fault === 'wrong_issuer'],
+        ['NotBefore',     sd.not_before,       false],
+        ['NotOnOrAfter',  sd.not_on_or_after,  fault === 'expired'],
+        ['ACS Recipient', sd.acs_url,          fault === 'bad_acs'],
+        ['SP Entity ID',  sd.sp_entity_id,     false],
+        ['User.email',    sd.email,            fault === 'missing_email'],
+        ['User.FirstName',sd.first_name,       false],
+        ['User.LastName', sd.last_name,        false],
+      ];
+      tbody.innerHTML = rows.map(function(row) {
+        var label = row[0], value = row[1], isFault = row[2];
+        var rowCls = isFault ? ' class="field-fault"' : '';
+        var valCls = isFault ? ' class="fault-val"'   : '';
+        var ann    = SAML_FIELD_ANNOTATIONS[label] || '';
+        return '<tr' + rowCls + '>'
+          + '<td>' + samlEsc(label) + '</td>'
+          + '<td' + valCls + '>' + samlEsc(String(value != null ? value : '')) + '</td>'
+          + '<td>' + samlEsc(ann) + '</td>'
+          + '</tr>';
+      }).join('');
+    }
+
+    // XML viewer
+    const xmlEl = document.getElementById('saml-dryrun-xml');
+    if (xmlEl) xmlEl.textContent = data.pretty_xml || '';
+
+    // B64 viewer (first 500 chars + ellipsis)
+    const b64El = document.getElementById('saml-dryrun-b64');
+    if (b64El) b64El.textContent = (data.saml_response_b64 || '').substring(0, 500) + '\u2026';
+
+    // Store full values for copy buttons
+    if (result) {
+      result.dataset.fullB64 = data.saml_response_b64 || '';
+      result.dataset.fullXml  = data.pretty_xml || '';
+    }
+
+    if (result) result.classList.remove('hidden');
+
+    // Update flow animator XML preview
+    const preview = document.getElementById('signed-assertion-preview');
+    if (preview) preview.textContent = (data.pretty_xml || '').substring(0, 3000);
+
+    // Claude narrative
+    try {
+      const narRes  = await fetch('/api/saml/narrative');
+      const narData = await narRes.json();
+      if (narData.narrative) samlShowNarrative(narData.narrative);
+    } catch (_e) {}
+
+  } catch (e) {
+    console.error('SAML dry run failed', e);
+    const meta = document.getElementById('saml-dryrun-meta');
+    if (meta) meta.innerHTML = '<span style="color:var(--saml-red)">Error: ' + samlEsc(String(e)) + '</span>';
+    if (result) result.classList.remove('hidden');
+  } finally {
+    if (btn)     btn.disabled = false;
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+
+// ── Claude Narrative display ────────────────────────────────────────────────────
+
+function samlShowNarrative(text) {
+  // Switch bottom panel to the narrative tab
+  $$('.panel-tab').forEach(function(t) { t.classList.remove('active'); });
+  $$('.tab-pane').forEach(function(p) { p.classList.remove('active'); });
+  const narrativeTab  = document.querySelector('[data-tab="narrative"]');
+  const narrativePane = document.getElementById('tab-narrative');
+  if (narrativeTab)  narrativeTab.classList.add('active');
+  if (narrativePane) narrativePane.classList.add('active');
+
+  const output = document.getElementById('narrative-output');
+  if (!output) return;
+  output.innerHTML = '';
+  text.split('\n').forEach(function(line) {
+    const p = document.createElement('p');
+    if (line.startsWith('\u2746') || /^(THE |WHAT )/.test(line)) {
+      p.className = 'narrative-beat-label';
+    }
+    p.textContent = line;
+    output.appendChild(p);
+  });
+}
+
+
+// ── XML toggle buttons ──────────────────────────────────────────────────────────
+
+function initSamlXmlToggles() {
+  $$('.saml-xml-toggle').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const targetId = btn.dataset.xmlTarget;
+      const target   = document.getElementById(targetId);
+      if (!target) return;
+      const isHidden = target.classList.contains('hidden');
+      target.classList.toggle('hidden', !isHidden);
+      if (isHidden) {
+        btn.textContent = btn.textContent.replace('\u25be', '\u25b4').replace('Show', 'Hide');
+      } else {
+        btn.textContent = btn.textContent.replace('\u25b4', '\u25be').replace('Hide', 'Show');
+      }
+    });
+  });
+}
+
+
+// ── Back button ─────────────────────────────────────────────────────────────────
+
+function initSamlBack() {
+  const btn = document.getElementById('btn-back-saml');
+  if (btn) {
+    btn.addEventListener('click', function() {
+      showWorkspace('cards');
+      $$('.endpoint-item').forEach(function(i) { i.classList.remove('active'); });
+    });
+  }
+}
+
+
+// ── Main SAML init ──────────────────────────────────────────────────────────────
+
+function initSaml() {
+  initSamlBack();
+
+  // Copy buttons in setup panel
+  $$('.btn-copy-saml').forEach(function(btn) {
+    btn.addEventListener('click', function() { samlCopyField(btn.dataset.target); });
+  });
+
+  // Save config
+  const saveBtn = document.getElementById('btn-saml-save-config');
+  if (saveBtn) saveBtn.addEventListener('click', samlSaveConfig);
+
+  // Regenerate certificate
+  const regenBtn = document.getElementById('btn-regen-cert');
+  if (regenBtn) regenBtn.addEventListener('click', samlRegenCert);
+
+  // Flow animator — Animate button
+  const animBtn = document.getElementById('btn-saml-animate');
+  if (animBtn) animBtn.addEventListener('click', samlAnimate);
+
+  // Flow animator — Trigger SSO button
+  const triggerBtn = document.getElementById('btn-saml-trigger-sso');
+  if (triggerBtn) triggerBtn.addEventListener('click', samlTriggerSso);
+
+  // Dry run — Generate button
+  const dryrunBtn = document.getElementById('btn-saml-dryrun');
+  if (dryrunBtn) dryrunBtn.addEventListener('click', samlRunDryRun);
+
+  // Dry run — Copy XML
+  const copyXmlBtn = document.getElementById('btn-copy-saml-xml');
+  if (copyXmlBtn) {
+    copyXmlBtn.addEventListener('click', function() {
+      const result = document.getElementById('saml-dryrun-result');
+      const xml    = (result && result.dataset.fullXml) || document.getElementById('saml-dryrun-xml')?.textContent || '';
+      samlCopyText(xml, copyXmlBtn);
+    });
+  }
+
+  // Dry run — Copy b64
+  const copyB64Btn = document.getElementById('btn-copy-saml-b64');
+  if (copyB64Btn) {
+    copyB64Btn.addEventListener('click', function() {
+      const result = document.getElementById('saml-dryrun-result');
+      const b64    = (result && result.dataset.fullB64) || '';
+      samlCopyText(b64, copyB64Btn);
+    });
+  }
+
+  // XML toggle buttons inside step cards
+  initSamlXmlToggles();
+
+  // "SAML in plain English" explainer modal (wires both Setup + Flow Animator buttons)
+  _initSamlExplainer();
+
+  // Pre-load config so setup view is ready immediately
+  samlLoadConfig();
+}
+
+
+// ── SAML Plain-English Explainer Modal ──────────────────────────────────────────
+
+const SAML_EXPLAIN_STEPS = [
+  {
+    badge: 'The Big Picture',
+    title: 'One login, every app — without sharing your password',
+    actors: null,
+    analogy: `Imagine your office building has a <strong>reception desk</strong> (your Identity Provider — this app).
+When you arrive in the morning, reception checks your ID and gives you a <strong>signed visitor badge</strong>.
+Every room in the building (Lucid, Salesforce, Slack…) trusts that badge. You never show your ID again.
+<strong>SAML is the standard that defines what the badge looks like and how rooms verify it.</strong>`,
+    detail: `The three players in every SAML flow:
+<br><br>
+<strong>Identity Provider (IdP)</strong> — the authority that knows who you are. It holds your credentials and issues signed assertions. In this app, <em>we are the IdP</em>.
+<br><br>
+<strong>Service Provider (SP)</strong> — the app you want to use. It trusts assertions from the IdP but never touches your password. Lucid is the SP.
+<br><br>
+<strong>Browser</strong> — the courier that carries messages between IdP and SP. Neither server talks to the other directly.`,
+    arrowLeft: null, arrowRight: null,
+  },
+  {
+    badge: 'Step 1',
+    title: 'You knock on Lucid\'s door',
+    actors: { from: 'browser', arrow1: { label: 'GET lucid.app', dir: 'right', active: true }, mid: 'lucid', arrow2: { label: '', dir: null, active: false }, to: 'idp' },
+    analogy: `You visit <strong>lucid.app</strong>. Lucid checks — do you have an active session? No.
+Lucid looks at your email domain and finds a SAML configuration for it.
+It knows <em>exactly</em> which IdP to send you to.`,
+    detail: `Lucid doesn't ask for your password. It just says <em>"I don't know who you are yet — go prove it to your IdP and come back."</em>
+<br><br>
+This is called <strong>SP-initiated SSO</strong> — the Service Provider (Lucid) starts the flow by redirecting you to the IdP.`,
+  },
+  {
+    badge: 'Step 2',
+    title: 'Lucid hands the browser a sealed envelope and an address',
+    actors: { from: 'lucid', arrow1: { label: '← 302 Redirect', dir: 'left', active: true }, mid: 'browser', arrow2: { label: 'AuthnRequest →', dir: 'right', active: true }, to: 'idp' },
+    analogy: `Lucid sends your browser a <strong>302 HTTP Redirect</strong> — like a note that says:
+<em>"Don't log in here. Walk to this address instead: <code>https://idp.example.com/saml/sso?SAMLRequest=ABC…</code>"</em>
+<br><br>
+The <code>?SAMLRequest=…</code> part is a sealed envelope — an <strong>AuthnRequest XML</strong> compressed and base64-encoded into the URL itself.`,
+    detail: `Your browser follows the redirect automatically, carrying the <code>SAMLRequest</code> to the IdP.
+<br><br>
+The AuthnRequest says: <em>"I am Lucid. Please authenticate this user and send them back to <code>lucid.app/saml/acs</code> when done."</em>
+<br><br>
+<strong>Key insight:</strong> The URL's <code>?</code> separates the address from the payload. Everything after <code>?</code> is data the browser carries to the destination — without reading or modifying it. Lucid and the IdP never connect directly. The browser is the postal service.`,
+  },
+  {
+    badge: 'Step 3 & 4',
+    title: 'The IdP authenticates you and signs an assertion',
+    actors: { from: 'browser', arrow1: { label: 'credentials', dir: 'right', active: false }, mid: 'idp', arrow2: { label: '', dir: null, active: false }, to: null },
+    analogy: `The IdP (this app) receives the AuthnRequest, authenticates the user,
+then builds a <strong>SAML Assertion</strong> — a formal XML document that says:
+<em>"I certify that testuser@example.com logged in successfully at 12:04 UTC. Valid for 10 minutes."</em>
+<br><br>
+It then <strong>cryptographically signs</strong> the assertion with its RSA private key, like stamping a wax seal.`,
+    detail: `The assertion contains:
+<br><br>
+• <strong>NameID</strong> — who the user is (<code>User.email</code>)
+• <strong>Issuer</strong> — which IdP signed it (our Entity ID)
+• <strong>Audience</strong> — which SP it's intended for (Lucid)
+• <strong>NotBefore / NotOnOrAfter</strong> — the validity window (prevents replay attacks)
+• <strong>Attributes</strong> — <code>User.FirstName</code>, <code>User.LastName</code>
+• <strong>Signature</strong> — RSA-SHA256 XMLDSig over the whole assertion
+<br><br>
+The signature means: if anyone tampers with even one character, Lucid will detect it and reject the assertion.`,
+  },
+  {
+    badge: 'Step 5',
+    title: 'The browser delivers the assertion to Lucid',
+    actors: { from: 'idp', arrow1: { label: 'SAMLResponse', dir: 'left', active: true }, mid: 'browser', arrow2: { label: 'POST ACS', dir: 'left', active: true }, to: 'lucid' },
+    analogy: `The IdP responds with an HTML page containing a hidden form and a JavaScript auto-submit.
+The form's action is Lucid's <strong>ACS URL</strong> (Assertion Consumer Service) and the form field contains the base64-encoded SAMLResponse.
+The browser submits it automatically — like the courier handing the signed envelope directly to Lucid's front desk.`,
+    detail: `This is the <strong>HTTP-POST binding</strong> — instead of putting the assertion in a URL (which has size limits),
+it's posted as a form body. This is how large, signed XML documents cross the browser boundary without getting truncated.
+<br><br>
+Lucid's ACS endpoint receives the POST, base64-decodes the <code>SAMLResponse</code>, and begins verification.`,
+  },
+  {
+    badge: 'Step 6',
+    title: 'Lucid verifies the badge and lets you in',
+    actors: { from: 'browser', arrow1: { label: 'POST ACS', dir: 'right', active: true }, mid: 'lucid', arrow2: { label: '✓ session', dir: 'right', active: false }, to: 'idp' },
+    analogy: `Lucid's security desk checks the visitor badge (the SAML Assertion) against a checklist.
+All checks pass? <strong>You're in.</strong> Lucid creates a session and redirects you to your dashboard —
+no password ever entered, no credentials ever sent to Lucid.`,
+    detail: `Lucid's five-point verification checklist:
+<br><br>
+<strong>① Signature</strong> — is the XMLDSig valid against the registered IdP certificate?
+<br>
+<strong>② Issuer</strong> — does the Issuer match the configured Entity ID?
+<br>
+<strong>③ Audience</strong> — is the AudienceRestriction set to Lucid's Entity ID?
+<br>
+<strong>④ Expiry</strong> — is <code>NotOnOrAfter</code> still in the future?
+<br>
+<strong>⑤ Email</strong> — does <code>User.email</code> match a known Lucid account?
+<br><br>
+If any check fails, Lucid rejects the assertion entirely. This is what the <strong>Fault Injection</strong> modes in the Flow Animator let you simulate.`,
+  },
+];
+
+let _samlExplainCurrent = 0;
+
+function openSamlExplainer() {
+  _samlExplainCurrent = 0;
+  _samlExplainRender();
+  document.getElementById('saml-explain-overlay').classList.remove('hidden');
+}
+
+function closeSamlExplainer() {
+  document.getElementById('saml-explain-overlay').classList.add('hidden');
+}
+
+function _samlExplainRender() {
+  const step    = SAML_EXPLAIN_STEPS[_samlExplainCurrent];
+  const total   = SAML_EXPLAIN_STEPS.length;
+  const counter = document.getElementById('saml-explain-counter');
+  const card    = document.getElementById('saml-explain-card');
+  const prevBtn = document.getElementById('btn-saml-explain-prev');
+  const nextBtn = document.getElementById('btn-saml-explain-next');
+
+  if (counter) counter.textContent = `${_samlExplainCurrent + 1} of ${total}`;
+  if (prevBtn) prevBtn.disabled = _samlExplainCurrent === 0;
+  if (nextBtn) nextBtn.textContent = _samlExplainCurrent === total - 1 ? 'Done ✓' : 'Next ►';
+
+  if (!card) return;
+
+  // Build actors mini-diagram if this step has one
+  let actorHtml = '';
+  if (step.actors) {
+    const a = step.actors;
+    const actors = [
+      { id: 'browser', icon: '🌐', label: 'Browser' },
+      { id: 'lucid',   icon: '◈',  label: 'Lucid (SP)' },
+      { id: 'idp',     icon: '🔑', label: 'This App (IdP)' },
+    ];
+    // Determine which actors and arrows to show based on who's involved
+    const fromId = a.from; const toId = a.to || null;
+    actorHtml = `<div class="saml-explain-actors">`;
+    actors.forEach(function(actor, i) {
+      const isHighlight = actor.id === fromId || actor.id === toId || actor.id === a.mid;
+      actorHtml += `<div class="saml-explain-actor${isHighlight ? ' highlight' : ''}">
+        <div class="saml-explain-actor-icon">${actor.icon}</div>
+        <div>${actor.label}</div>
+      </div>`;
+      if (i === 0 && a.arrow1) {
+        const active = a.arrow1.active;
+        const lbl = a.arrow1.label;
+        const dir = a.arrow1.dir;
+        actorHtml += `<div class="saml-explain-arrow${active ? ' active' : ''}">
+          <div class="saml-explain-arrow-line"></div>
+          <div>${dir === 'right' ? '→' : dir === 'left' ? '←' : ''} ${samlEsc(lbl)}</div>
+        </div>`;
+      }
+      if (i === 1 && a.arrow2) {
+        const active = a.arrow2.active;
+        const lbl = a.arrow2.label;
+        const dir = a.arrow2.dir;
+        actorHtml += `<div class="saml-explain-arrow${active ? ' active' : ''}">
+          <div class="saml-explain-arrow-line"></div>
+          <div>${dir === 'right' ? '→' : dir === 'left' ? '←' : ''} ${samlEsc(lbl)}</div>
+        </div>`;
+      }
+    });
+    actorHtml += `</div>`;
+  }
+
+  card.innerHTML = `<div class="saml-explain-step">
+    <div class="saml-explain-step-header">
+      <span class="saml-explain-badge">${samlEsc(step.badge)}</span>
+      <span class="saml-explain-step-title">${samlEsc(step.title)}</span>
+    </div>
+    ${actorHtml}
+    <div class="saml-explain-analogy">${step.analogy}</div>
+    <div class="saml-explain-detail">${step.detail}</div>
+  </div>`;
+}
+
+function _initSamlExplainer() {
+  const overlay  = document.getElementById('saml-explain-overlay');
+  const closeTop = document.getElementById('saml-explain-close');
+  const closeBot = document.getElementById('saml-explain-close-bottom');
+  const prevBtn  = document.getElementById('btn-saml-explain-prev');
+  const nextBtn  = document.getElementById('btn-saml-explain-next');
+
+  if (closeTop) closeTop.addEventListener('click', closeSamlExplainer);
+  if (closeBot) closeBot.addEventListener('click', closeSamlExplainer);
+  if (overlay)  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) closeSamlExplainer();
+  });
+
+  // Wire all three trigger buttons (Setup, Flow Animator, Dry Run)
+  ['btn-saml-explain', 'btn-saml-explain-flow', 'btn-saml-explain-dryrun'].forEach(function(id) {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', openSamlExplainer);
+  });
+
+  if (prevBtn) prevBtn.addEventListener('click', function() {
+    if (_samlExplainCurrent > 0) { _samlExplainCurrent--; _samlExplainRender(); }
+  });
+
+  if (nextBtn) nextBtn.addEventListener('click', function() {
+    if (_samlExplainCurrent < SAML_EXPLAIN_STEPS.length - 1) {
+      _samlExplainCurrent++;
+      _samlExplainRender();
+    } else {
+      closeSamlExplainer();
+    }
+  });
+}
+
+// ── Utility ─────────────────────────────────────────────────────────────────────
+
+function samlEsc(str) {
+  return String(str != null ? str : '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

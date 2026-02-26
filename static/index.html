@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lucid API Explorer</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=oauth-triangle-3" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
@@ -15,7 +15,7 @@
   <header id="topbar">
     <div id="topbar-left">
       <span id="app-name">Lucid API Explorer</span>
-      <span id="app-tagline">REST · SCIM · MCP — powered by Claude</span>
+      <span id="app-tagline">REST · SCIM · MCP · SAML — powered by Claude</span>
     </div>
     <div id="topbar-center">
       <button id="token-panel-trigger" class="token-panel-trigger" title="View token state">
@@ -101,6 +101,40 @@
       <button id="btn-reauth" class="btn-ghost" title="Authenticate REST API user token">Auth User Token</button>
     </div>
   </header>
+
+  <!-- ── SAML EXPLAINER MODAL ──────────────────────────────────────────────── -->
+  <!-- Shown when "SAML in plain English" is clicked.                          -->
+  <div id="saml-explain-overlay" class="hidden">
+    <div id="saml-explain-modal">
+
+      <div class="saml-explain-header">
+        <div class="saml-explain-title-row">
+          <span class="saml-explain-title">SAML — explained in plain English</span>
+          <button id="saml-explain-close" class="btn-ghost" title="Close">✕</button>
+        </div>
+        <p class="saml-explain-subtitle">
+          SAML 2.0 is how enterprises do Single Sign-On. One login unlocks every app —
+          without each app ever seeing your password.
+          Here's exactly what happens, step by step.
+        </p>
+      </div>
+
+      <!-- Step navigator -->
+      <div class="saml-explain-nav">
+        <button id="btn-saml-explain-prev" class="btn-flow-nav" disabled>◄ Back</button>
+        <span id="saml-explain-counter">1 of 6</span>
+        <button id="btn-saml-explain-next" class="btn-flow-nav">Next ►</button>
+      </div>
+
+      <!-- Step card -->
+      <div id="saml-explain-card"></div>
+
+      <div class="saml-explain-actions">
+        <button id="saml-explain-close-bottom" class="btn-ghost">Close</button>
+      </div>
+
+    </div>
+  </div>
 
   <!-- ── DCR EXPLAINER MODAL ───────────────────────────────────────────────── -->
   <!-- Shown when "How does DCR work?" is clicked. Explains DCR + OAuth flow.  -->
@@ -526,6 +560,29 @@
             </li>
           </ul>
         </div>
+
+        <!-- SAML IdP -->
+        <div class="surface-item" id="surface-saml">
+          <div class="surface-header" data-surface="saml">
+            <span class="surface-dot dot-saml"></span>
+            <div class="surface-header-text">
+              <span class="surface-name">SAML IdP</span>
+              <span class="surface-desc">SSO · Assertions · Dev IdP</span>
+            </div>
+            <span class="surface-chevron">›</span>
+          </div>
+          <ul class="endpoint-list" id="endpoints-saml">
+            <li class="endpoint-item saml-nav-item" data-surface="saml" data-saml-view="setup">
+              <span class="method-badge badge-saml">CFG</span>Setup
+            </li>
+            <li class="endpoint-item saml-nav-item" data-surface="saml" data-saml-view="flow">
+              <span class="method-badge badge-saml">SSO</span>Flow Animator
+            </li>
+            <li class="endpoint-item saml-nav-item" data-surface="saml" data-saml-view="dryrun">
+              <span class="method-badge badge-saml">XML</span>Dry Run
+            </li>
+          </ul>
+        </div>
       </div>
 
       <!-- Notepad -->
@@ -652,6 +709,19 @@
             <button class="btn-primary btn-explore" data-surface="mcp">Explore →</button>
           </div>
 
+          <div class="surface-card" data-surface="saml">
+            <div class="card-header">
+              <span class="surface-dot dot-saml"></span>
+              <span class="card-title">SAML 2.0 IdP</span>
+            </div>
+            <p class="card-desc">This app acts as a SAML Identity Provider. Generate signed assertions, configure SSO with Lucid, and animate the full SAML flow step-by-step.</p>
+            <div class="card-meta">
+              <span class="card-auth-badge saml-badge">Self-signed X.509</span>
+              <span class="card-endpoint-count">Dev IdP · Edu layer</span>
+            </div>
+            <button class="btn-primary btn-explore" data-surface="saml">Explore →</button>
+          </div>
+
         </div>
       </div>
 
@@ -692,12 +762,420 @@
           <div class="response-header">
             <span class="response-label">RESPONSE</span>
             <span id="response-status-badge" class="status-badge"></span>
+            <span id="response-correlation" class="response-correlation hidden"></span>
             <span id="response-latency" class="response-latency"></span>
           </div>
+          <div id="response-error-inspector" class="response-error-inspector hidden"></div>
           <pre id="response-json" class="json-viewer"></pre>
         </div>
 
       </div>
+
+      <!-- State D: SAML Workspace -->
+      <div id="workspace-saml" class="workspace-state">
+
+        <div id="breadcrumb-saml">
+          <button id="btn-back-saml" class="btn-ghost">← Back</button>
+          <span id="breadcrumb-saml-path">SAML IdP</span>
+        </div>
+
+        <!-- HTTPS warning banner (shown when app is on HTTP) -->
+        <div id="saml-https-warning" class="saml-warning-banner hidden">
+          <span class="saml-warning-icon">⚠</span>
+          <div>
+            <strong>Running on HTTP.</strong>
+            Lucid may require your IdP SSO URL to use HTTPS. For production testing,
+            expose this app via a tunnel: <code>ngrok http 8000</code> then update the IdP SSO URL below.
+          </div>
+        </div>
+
+        <!-- ── SETUP VIEW ─────────────────────────────────────────────────── -->
+        <div id="saml-view-setup" class="saml-view active">
+
+          <div class="saml-view-header">
+            <div class="saml-view-header-left">
+              <span class="saml-view-title">IdP Setup</span>
+              <span class="saml-view-subtitle">Configure this app as a SAML Identity Provider in Lucid</span>
+            </div>
+            <button id="btn-saml-explain" class="btn-ghost btn-sm saml-explain-trigger">SAML in plain English →</button>
+          </div>
+
+          <!-- Cert status row -->
+          <div class="saml-cert-status" id="saml-cert-status-row">
+            <span class="saml-cert-icon" id="saml-cert-icon">●</span>
+            <span id="saml-cert-label">Loading certificate…</span>
+            <span class="saml-cert-regen-hint">Regenerate creates a new keypair — then re-copy the certificate below into Lucid's admin panel.</span>
+            <button id="btn-regen-cert" class="btn-ghost btn-sm saml-regen-btn"
+              title="Creates a new RSA private key and self-signed X.509 certificate. The new public certificate will appear in the field below — copy it into Lucid's SAML admin panel to complete the update.">
+              ↺ Regenerate
+            </button>
+          </div>
+
+          <div class="saml-two-col">
+
+            <!-- LEFT: IdP values (copy these into Lucid) -->
+            <div class="saml-col">
+              <div class="saml-col-header">
+                <span class="saml-col-number">1</span>
+                Copy these into Lucid's SAML admin panel
+              </div>
+              <p class="saml-col-desc">
+                In Lucid: Admin → Account Settings → Single Sign-On → Add IdP → Manual configuration
+              </p>
+
+              <div class="saml-field-group">
+                <label class="saml-field-label">IdP SSO URL</label>
+                <div class="saml-copy-row">
+                  <input type="text" class="saml-readonly-input" id="saml-idp-sso-url" readonly />
+                  <button class="btn-copy-saml" data-target="saml-idp-sso-url">Copy</button>
+                </div>
+                <p class="saml-field-hint">Paste into "SSO URL" or "IdP Login URL" in Lucid.</p>
+              </div>
+
+              <div class="saml-field-group">
+                <label class="saml-field-label">IdP Entity ID</label>
+                <div class="saml-copy-row">
+                  <input type="text" class="saml-readonly-input" id="saml-idp-entity-id" readonly />
+                  <button class="btn-copy-saml" data-target="saml-idp-entity-id">Copy</button>
+                </div>
+                <p class="saml-field-hint">Paste into "Entity ID" or "Issuer" in Lucid.</p>
+              </div>
+
+              <div class="saml-field-group">
+                <label class="saml-field-label">X.509 Certificate (public)</label>
+                <div class="saml-copy-row saml-copy-row-tall">
+                  <textarea class="saml-readonly-input saml-cert-textarea" id="saml-idp-cert" readonly></textarea>
+                  <button class="btn-copy-saml btn-copy-saml-tall" data-target="saml-idp-cert">Copy</button>
+                </div>
+                <div class="saml-cert-meta" id="saml-cert-meta"></div>
+                <p class="saml-field-hint">Paste this into "Certificate" or "Public Key" in Lucid's SAML admin panel. Include the full <code style="font-size:10px;background:var(--panel-mid);padding:1px 4px;border-radius:3px;">-----BEGIN CERTIFICATE-----</code> / <code style="font-size:10px;background:var(--panel-mid);padding:1px 4px;border-radius:3px;">-----END CERTIFICATE-----</code> lines. After regenerating, you must re-paste the new cert in Lucid or existing SSO will break.</p>
+              </div>
+
+              <div class="saml-field-group">
+                <label class="saml-field-label">Metadata URL</label>
+                <div class="saml-copy-row">
+                  <input type="text" class="saml-readonly-input" id="saml-metadata-url" readonly value="http://localhost:8000/saml/metadata" />
+                  <button class="btn-copy-saml" data-target="saml-metadata-url">Copy</button>
+                </div>
+                <p class="saml-field-hint">Some IdP setups let you paste this URL instead of individual fields.</p>
+              </div>
+            </div>
+
+            <!-- RIGHT: SP values (copy from Lucid) + attribute config -->
+            <div class="saml-col">
+              <div class="saml-col-header">
+                <span class="saml-col-number">2</span>
+                Copy these from Lucid's SAML admin panel
+              </div>
+              <p class="saml-col-desc">
+                After saving the IdP in Lucid, Lucid shows you its SP values. Copy them here.
+              </p>
+
+              <div class="saml-field-group">
+                <label class="saml-field-label">Lucid ACS URL <span class="saml-required">*</span></label>
+                <input type="text" class="saml-editable-input" id="saml-acs-url"
+                  placeholder="https://lucid.app/saml/sso/your-domain?idpHash=…" />
+                <p class="saml-field-hint">Assertion Consumer Service URL — where the SAMLResponse is POSTed.</p>
+              </div>
+
+              <div class="saml-field-group">
+                <label class="saml-field-label">Lucid SP Entity ID</label>
+                <input type="text" class="saml-editable-input" id="saml-sp-entity-id"
+                  placeholder="https://lucid.app" />
+                <p class="saml-field-hint">The audience restriction — usually https://lucid.app or your tenant URL.</p>
+              </div>
+
+              <div class="saml-col-header" style="margin-top:16px;">
+                <span class="saml-col-number">3</span>
+                User attributes to assert
+              </div>
+              <p class="saml-col-desc">These values are placed in the signed SAML assertion sent to Lucid.</p>
+
+              <div class="saml-field-group">
+                <label class="saml-field-label">NameID / User.email <span class="saml-required">*</span></label>
+                <input type="text" class="saml-editable-input" id="saml-attr-email"
+                  placeholder="testuser@yourdomain.com" />
+                <p class="saml-field-hint">Must match an existing Lucid account email for SSO to succeed.</p>
+              </div>
+
+              <div class="saml-attr-row">
+                <div class="saml-field-group saml-field-half">
+                  <label class="saml-field-label">First Name</label>
+                  <input type="text" class="saml-editable-input" id="saml-attr-first" placeholder="Test" />
+                </div>
+                <div class="saml-field-group saml-field-half">
+                  <label class="saml-field-label">Last Name</label>
+                  <input type="text" class="saml-editable-input" id="saml-attr-last" placeholder="User" />
+                </div>
+              </div>
+
+              <div class="saml-field-group">
+                <label class="saml-field-label">Assertion validity (minutes)</label>
+                <input type="number" class="saml-editable-input saml-input-narrow" id="saml-validity-minutes"
+                  min="1" max="60" value="10" />
+              </div>
+
+              <button id="btn-saml-save-config" class="btn-execute saml-save-btn">Save Configuration</button>
+              <div id="saml-save-status" class="saml-save-status"></div>
+            </div>
+
+          </div><!-- /saml-two-col -->
+        </div><!-- /saml-view-setup -->
+
+        <!-- ── FLOW ANIMATOR VIEW ─────────────────────────────────────────── -->
+        <div id="saml-view-flow" class="saml-view">
+
+          <div class="saml-view-header">
+            <div class="saml-view-header-left">
+              <span class="saml-view-title">SAML Flow Animator</span>
+              <span class="saml-view-subtitle">Step-by-step — what happens during a Lucid SSO login</span>
+            </div>
+            <button id="btn-saml-explain-flow" class="btn-ghost btn-sm saml-explain-trigger">SAML in plain English →</button>
+          </div>
+
+          <!-- Fault injection controls -->
+          <div class="saml-fault-bar">
+            <label class="saml-fault-label">Fault injection:</label>
+            <select id="saml-fault-select" class="saml-fault-select">
+              <option value="">None — happy path</option>
+              <option value="expired">expired — assertion NotOnOrAfter in the past</option>
+              <option value="wrong_cert">wrong_cert — signed with unregistered key</option>
+              <option value="missing_email">missing_email — User.email attribute omitted</option>
+              <option value="wrong_issuer">wrong_issuer — Issuer set to unknown entity</option>
+              <option value="bad_acs">bad_acs — SAMLResponse POSTed to wrong URL</option>
+            </select>
+            <button id="btn-saml-animate" class="btn-execute saml-animate-btn">▶ Animate</button>
+            <button id="btn-saml-next" class="btn-execute saml-next-btn hidden">Next →</button>
+          </div>
+
+          <!-- 6-step swimlane -->
+          <div class="saml-swimlane">
+
+            <!-- Actors row -->
+            <div class="saml-actors">
+              <div class="saml-actor" id="saml-actor-browser">
+                <div class="saml-actor-icon">🌐</div>
+                <div class="saml-actor-label">Browser</div>
+              </div>
+              <div class="saml-track" id="saml-track-1">
+                <div class="saml-track-line"></div>
+                <div class="saml-packet" id="saml-packet-1"></div>
+              </div>
+              <div class="saml-actor" id="saml-actor-lucid">
+                <div class="saml-actor-icon">◈</div>
+                <div class="saml-actor-label">Lucid (SP)</div>
+              </div>
+              <div class="saml-track" id="saml-track-2">
+                <div class="saml-track-line"></div>
+                <div class="saml-packet" id="saml-packet-2"></div>
+              </div>
+              <div class="saml-actor" id="saml-actor-idp">
+                <div class="saml-actor-icon">🔑</div>
+                <div class="saml-actor-label">This App (IdP)</div>
+              </div>
+            </div>
+
+            <!-- Step cards -->
+            <div class="saml-steps" id="saml-steps-container">
+
+              <div class="saml-step" id="saml-step-1" data-step="1">
+                <div class="saml-step-header">
+                  <span class="saml-step-badge">Step 1</span>
+                  <span class="saml-step-title">User visits Lucid</span>
+                </div>
+                <div class="saml-step-body">
+                  <p>The user navigates to <code>lucid.app</code>. Lucid detects no active session for your domain and looks up the SAML configuration for your account.</p>
+                  <div class="saml-step-arrow">Browser → Lucid SP</div>
+                </div>
+              </div>
+
+              <div class="saml-step" id="saml-step-2" data-step="2">
+                <div class="saml-step-header">
+                  <span class="saml-step-badge">Step 2</span>
+                  <span class="saml-step-title">Lucid builds AuthnRequest → redirects to IdP</span>
+                </div>
+                <div class="saml-step-body">
+                  <p>Lucid (acting as SP) generates a signed AuthnRequest XML, base64-encodes and deflate-compresses it, and redirects the browser to your IdP SSO URL with it as a query parameter.</p>
+                  <div class="saml-step-arrow">Lucid SP → Browser → IdP SSO URL</div>
+                  <div class="saml-step-xml-toggle">
+                    <button class="btn-ghost btn-sm saml-xml-toggle" data-xml-target="authn-request-sample">Show AuthnRequest sample ▾</button>
+                    <pre class="saml-xml-block hidden" id="authn-request-sample">&lt;samlp:AuthnRequest
+  xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
+  ID="_abc123..."
+  Version="2.0"
+  IssueInstant="2026-02-26T12:00:00Z"
+  Destination="http://localhost:8000/saml/sso"
+  AssertionConsumerServiceURL="https://lucid.app/saml/sso/yourdomain?idpHash=..."
+  ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"&gt;
+  &lt;saml:Issuer&gt;https://lucid.app&lt;/saml:Issuer&gt;
+&lt;/samlp:AuthnRequest&gt;</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="saml-step" id="saml-step-3" data-step="3">
+                <div class="saml-step-header">
+                  <span class="saml-step-badge">Step 3</span>
+                  <span class="saml-step-title">IdP authenticates user</span>
+                </div>
+                <div class="saml-step-body">
+                  <p>In a real IdP (Okta, Entra) this is where the login form appears. Here, the user is pre-configured — we assemble their attributes from the Setup panel and build the assertion.</p>
+                  <div class="saml-step-fields" id="saml-step3-fields">
+                    <!-- Populated by JS after config load -->
+                  </div>
+                </div>
+              </div>
+
+              <div class="saml-step" id="saml-step-4" data-step="4">
+                <div class="saml-step-header">
+                  <span class="saml-step-badge">Step 4</span>
+                  <span class="saml-step-title">IdP signs assertion with RSA-SHA256</span>
+                </div>
+                <div class="saml-step-body">
+                  <p>The Assertion XML is signed using the private key — Lucid holds the matching public certificate and uses it to verify the signature. Any tampering after signing invalidates the assertion.</p>
+                  <div class="saml-step-xml-toggle">
+                    <button class="btn-ghost btn-sm saml-xml-toggle" data-xml-target="signed-assertion-preview">Show last generated XML ▾</button>
+                    <pre class="saml-xml-block hidden" id="signed-assertion-preview">Run a Dry Run first to see the XML here.</pre>
+                  </div>
+                  <div id="saml-fault-callout-4" class="saml-fault-callout hidden"></div>
+                </div>
+              </div>
+
+              <div class="saml-step" id="saml-step-5" data-step="5">
+                <div class="saml-step-header">
+                  <span class="saml-step-badge">Step 5</span>
+                  <span class="saml-step-title">Browser POSTs SAMLResponse to Lucid ACS</span>
+                </div>
+                <div class="saml-step-body">
+                  <p>The IdP renders a hidden HTML form containing the base64-encoded SAMLResponse. The browser auto-submits it via HTTP POST directly to Lucid's ACS URL — the IdP never touches Lucid's servers directly.</p>
+                  <div class="saml-step-xml-toggle">
+                    <button class="btn-ghost btn-sm saml-xml-toggle" data-xml-target="post-form-sample">Show form sample ▾</button>
+                    <pre class="saml-xml-block hidden" id="post-form-sample">&lt;form method="POST" action="https://lucid.app/saml/sso/..."&gt;
+  &lt;input type="hidden" name="SAMLResponse" value="PHNhbWxwOlJlc3BvbnNlI..." /&gt;
+  &lt;input type="hidden" name="RelayState" value="..." /&gt;
+&lt;/form&gt;
+&lt;script&gt;document.forms[0].submit();&lt;/script&gt;</pre>
+                  </div>
+                  <div id="saml-fault-callout-5" class="saml-fault-callout hidden"></div>
+                </div>
+              </div>
+
+              <div class="saml-step" id="saml-step-6" data-step="6">
+                <div class="saml-step-header">
+                  <span class="saml-step-badge">Step 6</span>
+                  <span class="saml-step-title">Lucid validates assertion → session established</span>
+                </div>
+                <div class="saml-step-body">
+                  <p>Lucid's ACS handler verifies: the signature (using the registered cert), the Issuer (must match your configured IdP entity ID), the Audience (must be Lucid's entity ID), and NotOnOrAfter (must be in the future). If all pass, Lucid creates a session and redirects the user in.</p>
+                  <div class="saml-validation-table">
+                    <div class="saml-check" id="saml-check-sig">
+                      <span class="saml-check-icon">◌</span>
+                      <span class="saml-check-label">Signature verified against registered certificate</span>
+                    </div>
+                    <div class="saml-check" id="saml-check-issuer">
+                      <span class="saml-check-icon">◌</span>
+                      <span class="saml-check-label">Issuer matches configured IdP Entity ID</span>
+                    </div>
+                    <div class="saml-check" id="saml-check-audience">
+                      <span class="saml-check-icon">◌</span>
+                      <span class="saml-check-label">Audience matches Lucid's SP Entity ID</span>
+                    </div>
+                    <div class="saml-check" id="saml-check-expiry">
+                      <span class="saml-check-icon">◌</span>
+                      <span class="saml-check-label">NotOnOrAfter is in the future (not expired)</span>
+                    </div>
+                    <div class="saml-check" id="saml-check-email">
+                      <span class="saml-check-icon">◌</span>
+                      <span class="saml-check-label">User.email attribute present and maps to a Lucid account</span>
+                    </div>
+                  </div>
+                  <div id="saml-fault-callout-6" class="saml-fault-callout hidden"></div>
+                </div>
+              </div>
+
+            </div><!-- /saml-steps -->
+          </div><!-- /saml-swimlane -->
+
+          <!-- Trigger SSO button -->
+          <div class="saml-trigger-row">
+            <button id="btn-saml-trigger-sso" class="btn-execute saml-trigger-btn">
+              🔑 Trigger SSO → Open IdP SSO URL in browser
+            </button>
+            <p class="saml-trigger-hint">
+              This opens the SSO endpoint in a new tab with the selected fault (if any).
+              Your browser will auto-submit the SAMLResponse to Lucid's ACS URL.
+            </p>
+          </div>
+
+        </div><!-- /saml-view-flow -->
+
+        <!-- ── DRY RUN VIEW ────────────────────────────────────────────────── -->
+        <div id="saml-view-dryrun" class="saml-view">
+
+          <div class="saml-view-header">
+            <div class="saml-view-header-left">
+              <span class="saml-view-title">Dry Run</span>
+              <span class="saml-view-subtitle">Generate a SAMLResponse without sending it to Lucid</span>
+            </div>
+            <button id="btn-saml-explain-dryrun" class="btn-ghost btn-sm saml-explain-trigger">SAML in plain English →</button>
+          </div>
+
+          <div class="saml-dryrun-controls">
+            <label class="saml-fault-label">Fault to inject:</label>
+            <select id="saml-dryrun-fault" class="saml-fault-select">
+              <option value="">None — happy path</option>
+              <option value="expired">expired</option>
+              <option value="wrong_cert">wrong_cert</option>
+              <option value="missing_email">missing_email</option>
+              <option value="wrong_issuer">wrong_issuer</option>
+              <option value="bad_acs">bad_acs</option>
+            </select>
+            <button id="btn-saml-dryrun" class="btn-execute">Generate</button>
+          </div>
+
+          <div id="saml-dryrun-result" class="hidden">
+
+            <div class="saml-dryrun-meta" id="saml-dryrun-meta"></div>
+
+            <div class="saml-dryrun-section">
+              <div class="saml-dryrun-section-label">Assertion Fields</div>
+              <table class="saml-fields-table" id="saml-dryrun-fields-table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Value</th>
+                    <th>Meaning</th>
+                  </tr>
+                </thead>
+                <tbody id="saml-dryrun-fields-body"></tbody>
+              </table>
+            </div>
+
+            <div class="saml-dryrun-section">
+              <div class="saml-dryrun-section-label">
+                SAMLResponse XML (decoded)
+                <button id="btn-copy-saml-xml" class="btn-copy btn-sm" style="margin-left:8px;">Copy XML</button>
+              </div>
+              <pre class="saml-xml-viewer" id="saml-dryrun-xml"></pre>
+            </div>
+
+            <div class="saml-dryrun-section">
+              <div class="saml-dryrun-section-label">
+                Base64-encoded SAMLResponse
+                <button id="btn-copy-saml-b64" class="btn-copy btn-sm" style="margin-left:8px;">Copy</button>
+              </div>
+              <pre class="saml-xml-viewer saml-b64-viewer" id="saml-dryrun-b64"></pre>
+            </div>
+
+          </div><!-- /saml-dryrun-result -->
+
+          <div id="saml-dryrun-loading" class="hidden saml-loading">
+            <span class="saml-spinner">◌</span> Generating assertion…
+          </div>
+
+        </div><!-- /saml-view-dryrun -->
+
+      </div><!-- /workspace-saml -->
 
       <!-- State C: MCP Workspace -->
       <div id="workspace-mcp" class="workspace-state">
@@ -762,6 +1240,7 @@
         <div id="mcp-response-viewer" class="hidden">
           <div class="response-header">
             <span class="response-label">MCP RESPONSE</span>
+            <span id="mcp-response-correlation" class="response-correlation hidden"></span>
           </div>
           <div id="mcp-structured-results" class="mcp-structured-results hidden"></div>
           <div id="mcp-raw-controls" class="mcp-raw-controls hidden">
@@ -784,6 +1263,8 @@
       <button class="panel-tab" data-tab="code">Code</button>
       <button class="panel-tab" data-tab="narrative">Claude Narrative</button>
       <button class="panel-tab sim-tab-locked" data-tab="simulate" id="tab-simulate-btn" title="Complete OAuth to unlock">🎮 Simulate <span class="sim-lock-icon" id="sim-lock-icon">🔒</span></button>
+      <button id="panel-expand-btn" title="Expand panel">⤢</button>
+      <button id="panel-collapse-btn" title="Collapse / expand panel">▼</button>
     </div>
 
     <div id="panel-content">
@@ -842,6 +1323,19 @@
           <div class="sim-overlay-sub">Run the REST API auth flow to unlock the simulator.</div>
         </div>
 
+        <!-- Replaces start content previously rendered inside #sim-result-content.
+             Why: start UI should own the full pane and not feel nested in a result box. -->
+        <div id="sim-overlay-start" class="sim-overlay sim-overlay-start">
+          <div class="sim-overlay-icon">🎮</div>
+          <div class="sim-overlay-title">OAuth Packet Intercept</div>
+          <div class="sim-overlay-sub">
+            You are the attacker. Click glowing packets in flight to intercept them.
+            Toggle PKCE to watch the same attacks get blocked.
+          </div>
+          <div class="sim-start-mode" id="sim-start-mode">Starting mode: Insecure</div>
+          <button class="sim-btn-start" id="sim-btn-start-overlay">Start attack →</button>
+        </div>
+
         <div id="sim-overlay-pwned" class="sim-overlay sim-overlay-pwned">
           <div class="sim-overlay-skull">💀</div>
           <div class="sim-overlay-pwned-title">YOU FORGED THE TOKEN</div>
@@ -860,7 +1354,7 @@
         <div id="sim-overlay-missed" class="sim-overlay sim-overlay-missed">
           <div class="sim-overlay-icon">🎯</div>
           <div class="sim-overlay-missed-title">Flow completed — nothing intercepted</div>
-          <div class="sim-overlay-missed-body">All packets landed safely this time. In insecure mode, a real attacker <em>could</em> have stolen the token on wave 4 — try clicking the glowing packets next run.</div>
+          <div class="sim-overlay-missed-body">All packets landed safely this time. In insecure mode, a real attacker <em>could</em> have stolen the token on wave 6 — try clicking the glowing packets next run.</div>
           <button class="sim-btn-replay" id="sim-btn-replay-missed">↺ Try again</button>
         </div>
 
@@ -874,37 +1368,52 @@
         <!-- GAME CONTENT: HUD + swimlane + result area -->
 
         <div id="sim-hud">
-          <div class="sim-hud-wave" id="sim-hud-wave">Wave 1 / 4</div>
+          <div class="sim-hud-wave" id="sim-hud-wave">Wave 1 / 6</div>
           <button class="sim-pkce-toggle" id="sim-pkce-toggle">Without PKCE</button>
           <div class="sim-mode-badge sim-mode-insecure" id="sim-mode-badge">INSECURE</div>
           <button class="sim-hud-restart" id="sim-hud-restart" title="Restart game">↺ Restart</button>
         </div>
 
+        <!-- Replaces ephemeral internal-step text in #sim-result-content.
+             Why: keep a persistent readable timeline during fast packet animation. -->
+        <div id="sim-step-strip" aria-label="OAuth simulation steps"></div>
+
+        <!-- Upgraded from a thin label into an active status bar with full step text. -->
+        <div class="sim-wave-desc" id="sim-wave-desc">Click a glowing packet to intercept it.</div>
+
         <div id="sim-swimlane">
-          <div class="sim-actor" id="sim-actor-browser">
-            <div class="sim-actor-icon">🌐</div>
-            <div class="sim-actor-label">Browser</div>
+          <div id="sim-top-row">
+            <div class="sim-actor" id="sim-actor-browser">
+              <div class="sim-actor-icon">🌐</div>
+              <div class="sim-actor-label">Browser</div>
+            </div>
           </div>
-          <div class="sim-track" id="sim-track-1">
-            <div class="sim-track-line"></div>
-            <div class="sim-packet" id="sim-packet-1"></div>
+          <div id="sim-mid-row">
+            <div class="sim-track sim-track-diagonal sim-track-diagonal-left" id="sim-track-1">
+              <div class="sim-track-line"></div>
+              <div class="sim-packet" id="sim-packet-1"></div>
+            </div>
+            <div class="sim-track sim-track-diagonal sim-track-diagonal-right" id="sim-track-2">
+              <div class="sim-track-line"></div>
+              <div class="sim-packet" id="sim-packet-2"></div>
+            </div>
           </div>
-          <div class="sim-actor" id="sim-actor-server">
-            <div class="sim-actor-icon">⚙</div>
-            <div class="sim-actor-label">Your Server</div>
-            <div class="sim-actor-sub">this app</div>
-          </div>
-          <div class="sim-track" id="sim-track-2">
-            <div class="sim-track-line"></div>
-            <div class="sim-packet" id="sim-packet-2"></div>
-          </div>
-          <div class="sim-actor" id="sim-actor-lucid">
-            <div class="sim-actor-icon">◈</div>
-            <div class="sim-actor-label">Lucid</div>
+          <div id="sim-bottom-row">
+            <div class="sim-actor" id="sim-actor-server">
+              <div class="sim-actor-icon">⚙</div>
+              <div class="sim-actor-label">Your Server</div>
+              <div class="sim-actor-sub">this app</div>
+            </div>
+            <div class="sim-track sim-track-horizontal" id="sim-track-3">
+              <div class="sim-track-line"></div>
+              <div class="sim-packet" id="sim-packet-3"></div>
+            </div>
+            <div class="sim-actor" id="sim-actor-lucid">
+              <div class="sim-actor-icon">◈</div>
+              <div class="sim-actor-label">Lucid</div>
+            </div>
           </div>
         </div>
-
-        <div class="sim-wave-desc" id="sim-wave-desc">Click a packet to intercept it.</div>
 
         <div class="sim-result-area">
           <div id="sim-result-content"></div>
@@ -915,6 +1424,6 @@
     </div>
   </div><!-- /bottom-panel -->
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=oauth-triangle-3"></script>
 </body>
 </html>

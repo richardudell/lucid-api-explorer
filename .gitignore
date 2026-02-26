@@ -1,6 +1,10 @@
 .env
+.python-version
 .venv/
 .DS_Store
 __pycache__/
 *.pyc
 *.pyo
+
+# SAML IdP — persisted cert + private key (never commit)
+saml_config.json

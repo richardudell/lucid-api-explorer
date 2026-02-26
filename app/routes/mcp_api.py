@@ -12,13 +12,14 @@ The /mcp/callback endpoint is separate from /callback (REST OAuth) — MCP uses 
 own redirect URI (http://localhost:8000/mcp/callback) to keep the flows distinct.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from urllib.parse import quote as urlquote
 
 # Import as app_state to avoid collision with FastAPI's `state` query param name
 import app.state as app_state
+from app.errors import error_response_from_exception, error_response_from_result, success_response
 from app.services.lucid_mcp import (
     complete_mcp_auth,
     execute_mcp_prompt,
@@ -41,9 +42,9 @@ async def auth_mcp(force: bool = False) -> JSONResponse:
     Returns JSON rather than a direct redirect so the frontend can show the URL
     and explain what DCR is before sending the user away.
     """
-    auth_url, error = await initiate_mcp_auth(force_reauth=force)
+    auth_url, error, already_authenticated = await initiate_mcp_auth(force_reauth=force)
     if not auth_url:
-        if error and error.startswith("MCP already authenticated"):
+        if already_authenticated:
             return JSONResponse(content={"already_authenticated": True, "message": error}, status_code=200)
         return JSONResponse(
             content={"error": error or "Failed to generate MCP authorization URL. Check server logs."},
@@ -99,7 +100,7 @@ class PromptRequest(BaseModel):
 
 
 @router.post("/api/mcp/prompt", summary="Execute a natural language MCP prompt")
-async def mcp_prompt(body: PromptRequest) -> JSONResponse:
+async def mcp_prompt(request: Request, body: PromptRequest) -> JSONResponse:
     """
     Send a natural language prompt to the Lucid MCP server.
 
@@ -109,18 +110,28 @@ async def mcp_prompt(body: PromptRequest) -> JSONResponse:
       3. Uses Claude to plan which tool(s) to call
       4. Executes the tool calls and returns the full log for display
     """
-    result = await execute_mcp_prompt(body.prompt)
-    return JSONResponse(content=result, status_code=200)
+    try:
+        result = await execute_mcp_prompt(body.prompt)
+    except Exception as exc:  # defensive guard for adapter exceptions
+        return error_response_from_exception(request, exc)
+
+    status = int(result.get("status_code", 500) or 500) if isinstance(result, dict) else 500
+    if status >= 400:
+        return error_response_from_result(request, result)
+    return success_response(request, data=result, http_status=200)
 
 
 # ── Tool listing ───────────────────────────────────────────────────────────────
 
 @router.get("/api/mcp/tools", summary="List available Lucid MCP tools")
-async def mcp_tools() -> JSONResponse:
+async def mcp_tools(request: Request) -> JSONResponse:
     """
     Return the list of tools advertised by the Lucid MCP server.
     Used to populate the capabilities panel in the MCP workspace.
     Returns an empty list if not authenticated.
     """
-    tools = await list_mcp_tools()
-    return JSONResponse(content={"tools": tools})
+    try:
+        tools = await list_mcp_tools()
+        return success_response(request, data={"tools": tools}, http_status=200)
+    except Exception as exc:
+        return error_response_from_exception(request, exc)

@@ -2,7 +2,7 @@
 
 > REST · SCIM · MCP — powered by Claude
 
-An internal API workbench and educational tool built for Lucid Software's Customer Operations and Enterprise Support team. It provides a unified interface for exploring, executing, and debugging calls across three of Lucid's API surfaces — with every request narrated in plain language by Claude.
+An internal API workbench and educational tool built for Lucid Software's Customer Operations and Enterprise Support team. It provides a unified interface for exploring, executing, and debugging Lucid API calls, with optional Claude narration and visual auth explainers.
 
 ---
 
@@ -10,8 +10,9 @@ An internal API workbench and educational tool built for Lucid Software's Custom
 
 - **Executes real API calls** against Lucid's REST API, SCIM API, and MCP server from a single browser-based interface
 - **Handles all three authentication models** — OAuth 2.0 Authorization Code Flow (REST), static Bearer token (SCIM), and OAuth 2.0 with Dynamic Client Registration (MCP) — with animated step-by-step explanations of each flow
-- **Narrates every request with Claude** — after each call, Claude generates a four-beat narrative covering authentication, the request, the response, and what it means; engineers can ask follow-up questions in plain English
+- **Narrates requests with Claude on-demand** — engineers can click **Get Narrative** after a call to generate a four-beat explanation and ask follow-up questions in plain English
 - **Generates Lucidchart diagrams** via the Standard Import API — describe a diagram, Claude produces the JSON, the app packages it as a `.lucid` file and uploads it directly to Lucid
+- **Includes an OAuth Packet Intercept simulator** — a browser-only interactive game that shows insecure Authorization Code flow vs PKCE defense step-by-step
 
 ---
 
@@ -33,12 +34,83 @@ The app is a thin, transparent proxy. Credentials never touch the browser — to
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.12, FastAPI 0.115, Uvicorn 0.32 |
+| Backend | Python 3.12+, FastAPI 0.115, Uvicorn 0.32 |
 | HTTP client | httpx 0.28 (async) |
 | MCP client | mcp 1.26 (`OAuthClientProvider`, `streamablehttp_client`) |
 | AI | Anthropic SDK 0.42, claude-sonnet-4-6 |
 | Frontend | Vanilla HTML + CSS + JavaScript — no framework, no build step |
 | Config | python-dotenv |
+
+---
+
+## Error Envelope and Correlation IDs
+
+Most API-style backend routes now return a stable response envelope so the frontend can
+reliably distinguish success vs typed failure.
+
+### Success shape
+
+```json
+{
+  "ok": true,
+  "correlation_id": "uuid-or-forwarded-id",
+  "data": { "...existing payload..." },
+  "meta": {}
+}
+```
+
+### Error shape
+
+```json
+{
+  "ok": false,
+  "correlation_id": "uuid-or-forwarded-id",
+  "error": {
+    "category": "auth_error",
+    "message": "Human-readable summary",
+    "retryable": false,
+    "recommended_action": "reauth",
+    "http_status": 401,
+    "details": {},
+    "upstream": {}
+  }
+}
+```
+
+### Error categories
+
+- `config_error`
+- `auth_error`
+- `api_error`
+- `rate_limit`
+- `network_error`
+- `model_output_error`
+- `model_policy_error`
+- `validation_error`
+- `unknown_error`
+
+### Correlation header behavior
+
+- Inbound: app accepts `X-Correlation-Id` if provided by caller.
+- Fallback: app generates a UUID per request when header is missing.
+- Outbound: app always returns `X-Correlation-Id` response header.
+- Body: `correlation_id` is included in both success and error envelopes.
+
+Primary implementation lives in:
+
+- `app/errors.py`
+- `main.py` (correlation middleware)
+
+Routes currently wrapped with this envelope pattern:
+
+- `/api/rest/{endpoint_key}`
+- `/api/scim/{endpoint_key}`
+- `/api/mcp/prompt`
+- `/api/mcp/tools`
+- `/ai/narrative`
+- `/ai/followup`
+- `/ai/notepad`
+- `/ai/standard-import`
 
 ---
 
@@ -63,6 +135,20 @@ All tokens are held in this app's memory only — nothing is written to disk. To
 
 | Endpoint | Method | Scope required |
 |---|---|---|
+| `getAccountInfo` | `GET /accounts/me` | `account.info` |
+| `searchAccountDocuments` | `POST /accounts/me/documents/search` | `lucidchart.document.content:admin.readonly` |
+| `searchDocuments` | `POST /documents/search` | `lucidchart.document.content:readonly` |
+| `createDocument` | `POST /documents` | `lucidchart.document.content` |
+| `getDocument` | `GET /documents/{documentId}` | `lucidchart.document.content:readonly` |
+| `getDocumentContents` | `GET /documents/{documentId}/contents` | `lucidchart.document.content:readonly` |
+| `trashDocument` | `POST /documents/{documentId}/trash` | `lucidchart.document.content` |
+| `getFolder` | `GET /folders/{folderId}` | `folder:readonly` |
+| `createFolder` | `POST /folders` | `folder` |
+| `updateFolder` | `PATCH /folders/{folderId}` | `folder` |
+| `trashFolder` | `POST /folders/{folderId}/trash` | `folder` |
+| `restoreFolder` | `POST /folders/{folderId}/restore` | `folder` |
+| `listFolderContents` | `GET /folders/{folderId}/contents` | `folder:readonly` |
+| `listRootFolderContents` | `GET /folders/root/contents` | `folder:readonly` |
 | `getUser` | `GET /users/{userId}` | `account.user:readonly` |
 | `listUsers` | `GET /users` | `account.user:readonly` |
 | `userEmailSearch` | `GET /users?email=...` | `account.user:readonly` |
@@ -99,11 +185,22 @@ The `importStandardImport` endpoint exposes Lucid's [Standard Import API](https:
 
 The app adds two ways to generate that JSON:
 
-**Template gallery** — three pre-built starter documents (API request flowchart, app component org chart, OAuth/DCR swimlane) that load into the editor and execute immediately.
+**Template gallery** — three built-in starter documents (flowchart, org chart, swimlane) that load into the editor with one click.
 
-**Claude generation** — describe a diagram in plain English ("show how MCP auth works", "diagram the token refresh flow"), and Claude generates the Standard Import JSON. The backend validates the output, normalizes shape coordinates and IDs, strips any invalid fields, and if Claude produces malformed JSON, calls itself again to repair it before failing.
+**Claude generation** — describe a diagram in plain English ("show how MCP auth works", "diagram the token refresh flow"), and Claude generates the Standard Import JSON. The backend validates/normalizes output, applies compatibility transforms, and attempts JSON repair when model output is malformed.
 
 The upload is packaged as a multipart POST with a `.lucid` zip file containing `document.json` — the same format Lucid's own apps use internally. On success, the response includes the new document's URL.
+
+### OAuth Packet Intercept Simulator
+
+The **Simulate** tab is a browser-only educational game:
+
+- 6-step timeline of OAuth events (internal + packet steps)
+- Insecure vs PKCE toggle
+- Click-to-intercept packet waves
+- End states: pwned / defended / missed
+
+This runs entirely in frontend JS/CSS (no backend calls).
 
 ---
 
@@ -126,10 +223,24 @@ Narrative generation is **on-demand only** — Claude is not called automaticall
 
 ### Prerequisites
 
-- Python 3.12+
+- Python **3.12.x** (recommended and enforced for `python main.py`)
 - A Lucid developer account with an OAuth application registered at [lucid.app/developer](https://lucid.app/developer)
 - A Lucid admin account with SCIM token access (Admin Panel → Security → API Tokens)
 - An Anthropic API key from [console.anthropic.com](https://console.anthropic.com)
+
+### 5-minute quickstart (copy/paste)
+
+```bash
+brew install pyenv
+pyenv install 3.12.9
+pyenv local 3.12.9
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python scripts/doctor.py
+python main.py
+```
 
 ### Install
 
@@ -140,6 +251,14 @@ python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+If `pip install -r requirements.txt` fails, confirm your runtime:
+
+```bash
+python --version
+```
+
+Use Python 3.12.x, then recreate `.venv`.
 
 ### Configure
 
@@ -163,6 +282,19 @@ Open `.env` and fill in:
 > **`offline_access` scope:** Adding `offline_access` causes Lucid to include a `refresh_token` alongside the access token, allowing silent refresh without re-authenticating every hour. Requires the scope to be enabled on your OAuth client in the Developer Portal first.
 
 > **MCP:** No MCP credentials go in `.env`. The app registers itself with Lucid's MCP server at runtime via Dynamic Client Registration — no portal setup required.
+
+### Demo mode (no real secrets)
+
+For UI walkthroughs where you only need the interface running:
+
+```bash
+cp .env.demo .env
+python scripts/doctor.py --demo
+python main.py
+```
+
+In demo mode, missing AI/SCIM secrets do not block startup. Those features show
+clear config/auth errors when invoked.
 
 ### Run
 
@@ -200,7 +332,7 @@ lucid-api-explorer/
 ├── static/
 │   ├── index.html                 # Single-page app shell
 │   ├── style.css
-│   └── app.js                     # All frontend logic (~3500 lines, no framework)
+│   └── app.js                     # All frontend logic (~4200+ lines, no framework)
 └── docs/
     ├── lucid-api-explorer-PRD-final.docx
     ├── lucid-api-explorer-FLOW-final.docx

@@ -18,15 +18,28 @@ from datetime import datetime, timedelta
 import httpx
 
 import app.state as state
-from app.config import LUCID_REST_BASE_URL, LUCID_CLIENT_ID, LUCID_CLIENT_SECRET, LUCID_TOKEN_URL
+from app.config import LUCID_REST_BASE_URL, LUCID_CLIENT_ID, LUCID_CLIENT_SECRET
 
 # ── Endpoint registry ──────────────────────────────────────────────────────────
 # Maps endpoint keys (matching the frontend ENDPOINTS object) to their
 # HTTP method and URL factory. URL factories are callables that accept
 # the params dict and return the fully-resolved URL string.
+#
+# ENDPOINT_REGISTRY schema — each entry is a dict with these fields:
+#   method       (str, required)            HTTP verb: "GET" | "POST" | "PUT" | "PATCH"
+#   url          (Callable[[dict], str])    lambda(params) → fully-resolved URL string
+#   token        (str, required)            Auth slot: "user" | "account" | "client_credentials"
+#   scope        (str, optional)            OAuth scope required for this endpoint
+#   has_body     (bool, optional)           True if the endpoint accepts a JSON request body
+#   import_mode  (str, optional)            Special handling flag: "standard_import"
+#   content_type (str, optional)            Overrides the default Content-Type header
 
 def _url(path: str) -> str:
     return f"{LUCID_REST_BASE_URL}{path}"
+
+# ── Request timeout constants ─────────────────────────────────────────────────
+REST_REQUEST_TIMEOUT    = 15.0  # seconds: default httpx timeout for REST API calls
+STANDARD_IMPORT_TIMEOUT = 30.0  # seconds: httpx timeout for Standard Import file upload
 
 ENDPOINT_REGISTRY: dict[str, dict] = {
     "getUser": {
@@ -291,7 +304,7 @@ async def execute_rest_call(endpoint_key: str, params: dict) -> dict:
                 url=url,
                 headers=headers,
                 json=body,
-                timeout=15.0,
+                timeout=REST_REQUEST_TIMEOUT,
             )
     except httpx.RequestError as exc:
         return _error_result(f"Network error: {exc}", request_log=request_log)
@@ -418,7 +431,7 @@ async def _execute_standard_import_call(
                     headers=headers,
                     data=form_data,
                     files=files,
-                    timeout=30.0,
+                    timeout=STANDARD_IMPORT_TIMEOUT,
                 )
         except httpx.RequestError as exc:
             return None, 0, {"error": f"Network error: {exc}"}, request_log_local
@@ -759,9 +772,9 @@ async def _execute_token_management_call(
     try:
         async with httpx.AsyncClient() as client:
             if content_type == "application/json":
-                response = await client.post(url, json=body_data, headers=headers, timeout=15.0)
+                response = await client.post(url, json=body_data, headers=headers, timeout=REST_REQUEST_TIMEOUT)
             else:
-                response = await client.post(url, data=body_data, headers=headers, timeout=15.0)
+                response = await client.post(url, data=body_data, headers=headers, timeout=REST_REQUEST_TIMEOUT)
     except httpx.RequestError as exc:
         return _error_result(f"Network error: {exc}", request_log=request_log)
 
@@ -783,7 +796,11 @@ async def _execute_token_management_call(
         and isinstance(response_body, dict)
         and "access_token" in response_body
     ):
-        _update_state_from_token_response(response_body, params)
+        _update_state_from_token_response(
+            response_body,
+            params,
+            token_type=params.get("token_slot", "user"),
+        )
 
     # Build the display body — for refreshAccessToken we show the token fully
     # (redacted preview for security-conscious display) but with clear labels.
@@ -818,18 +835,27 @@ async def _execute_token_management_call(
     return result
 
 
-def _update_state_from_token_response(token_data: dict, params: dict) -> None:
+def _update_state_from_token_response(
+    token_data: dict,
+    params: dict,
+    token_type: str = "user",
+) -> None:
     """
-    After a successful refreshAccessToken call, persist the new token into
-    state. We infer which token slot to update from the grant_type and
-    whether the refresh_token in the request matched the user or account token.
+    After a successful refreshAccessToken call, persist the new token into state.
+
+    Args:
+        token_data: The parsed JSON body from Lucid's token endpoint.
+        params:     The original request params dict (used only to read grant_type).
+        token_type: Which slot to write — "user" or "account". Supplied explicitly
+                    by the caller via the token_slot param on the frontend form.
+                    This replaces the previous approach of inferring the slot by
+                    comparing the incoming refresh token to values in memory, which
+                    failed silently after a server restart (both slots empty).
 
     This keeps the app authenticated with the latest token without requiring
     a full OAuth re-flow, and makes the 'Use user/account token' helpers in
     the token-management param fields immediately reflect the updated value.
     """
-    # Read individual params (refreshAccessToken now uses per-field params, not a body textarea)
-    incoming_refresh = params.get("refresh_token", "").strip()
     grant_type = params.get("grant_type", "").strip()
 
     # Helper to write fields into state
@@ -857,20 +883,13 @@ def _update_state_from_token_response(token_data: dict, params: dict) -> None:
         if raw_scopes:
             state.rest_account_token_scopes = raw_scopes.split()
 
-    if grant_type == "refresh_token" and incoming_refresh:
-        # Match the incoming refresh token to either the user or account slot
-        if incoming_refresh == state.rest_refresh_token:
-            write_user_token(token_data)
-        elif incoming_refresh == state.rest_account_refresh_token:
-            write_account_token(token_data)
-        else:
-            # Unknown refresh token — write to user slot as a safe default
-            write_user_token(token_data)
-    elif grant_type == "authorization_code":
-        # Brand-new authorization code exchange — treat as a user token
+    if grant_type == "authorization_code":
+        # Brand-new authorization code exchange — always a user token regardless of token_type
         write_user_token(token_data)
+    elif token_type == "account":
+        write_account_token(token_data)
     else:
-        # Fallback: update user token slot
+        # Default: user slot (covers refresh_token grant and any other grant types)
         write_user_token(token_data)
 
 
