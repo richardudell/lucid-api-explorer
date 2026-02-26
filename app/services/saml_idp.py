@@ -129,8 +129,6 @@ def generate_certificate() -> dict[str, Any]:
     The cert is valid for 10 years — appropriate for a dev/test IdP.
     Subject CN is set to the IdP entity ID so it's recognisable in Lucid's UI.
     """
-    config = load_config()
-
     # 1. Generate private key
     private_key = rsa.generate_private_key(
         public_exponent=65537,
@@ -193,7 +191,7 @@ def get_cert_for_metadata(config: dict[str, Any]) -> str:
     Strips PEM headers and all newlines.
     """
     pem = config.get("cert_pem", "")
-    lines = [l for l in pem.splitlines() if not l.startswith("-----")]
+    lines = [line for line in pem.splitlines() if not line.startswith("-----")]
     return "".join(lines)
 
 
@@ -428,7 +426,7 @@ def build_response_xml(
     # Status (always Success for happy path — fault errors are still Success at
     # the Response level; Lucid validates the Assertion fields, not this element)
     status = etree.SubElement(response, "{urn:oasis:names:tc:SAML:2.0:protocol}Status")
-    status_code = etree.SubElement(
+    etree.SubElement(
         status,
         "{urn:oasis:names:tc:SAML:2.0:protocol}StatusCode",
         attrib={"Value": "urn:oasis:names:tc:SAML:2.0:status:Success"},
