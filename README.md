@@ -221,67 +221,155 @@ Narrative generation is **on-demand only** — Claude is not called automaticall
 
 ## Setup
 
-### Prerequisites
+This section is written for a coworker on a **brand new MacBook** who has never used Terminal before.
 
-- Python **3.12.x** (recommended and enforced for `python main.py`)
-- A Lucid developer account with an OAuth application registered at [lucid.app/developer](https://lucid.app/developer)
+### What you'll need
+
+- A Mac running macOS
+- Internet access
+- A Lucid developer account with an OAuth app in [lucid.app/developer](https://lucid.app/developer)
 - A Lucid admin account with SCIM token access (Admin Panel → Security → API Tokens)
 - An Anthropic API key from [console.anthropic.com](https://console.anthropic.com)
 
-### 5-minute quickstart (copy/paste)
+### 0) Open Terminal
+
+1. Press `Command + Space` to open Spotlight.
+2. Type `Terminal`.
+3. Press `Return`.
+
+You should now see a window with a command prompt.
+
+### 1) Install Apple's command line tools
+
+Run:
 
 ```bash
-brew install pyenv
-pyenv install 3.12.9
-pyenv local 3.12.9
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python scripts/doctor.py
-python main.py
+xcode-select --install
 ```
 
-### Install
+- If a popup appears, click **Install**.
+- If it says tools are already installed, continue.
+
+### 2) Install Homebrew (package manager)
+
+Copy/paste this exact command into Terminal:
 
 ```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+After install, run this to verify:
+
+```bash
+brew --version
+```
+
+### 3) Install Git and pyenv
+
+Run:
+
+```bash
+brew install git pyenv
+```
+
+Verify:
+
+```bash
+git --version
+pyenv --version
+```
+
+### 4) Configure pyenv in your shell (one-time)
+
+Run these commands:
+
+```bash
+echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc
+echo '[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc
+echo 'eval "$(pyenv init - zsh)"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### 5) Install Python 3.12 and clone the repo
+
+Run:
+
+```bash
+pyenv install 3.12.9
 git clone https://github.com/richardudell/lucid-api-explorer.git
 cd lucid-api-explorer
-python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-If `pip install -r requirements.txt` fails, confirm your runtime:
-
-```bash
+pyenv local 3.12.9
 python --version
 ```
 
-Use Python 3.12.x, then recreate `.venv`.
+`python --version` should show `3.12.x`.
 
-### Configure
+### 6) Create a virtual environment and install dependencies
+
+Run:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+When the venv is active, your prompt usually starts with `(.venv)`.
+
+### 7) Configure environment variables
+
+Create your local config:
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and fill in:
+Open `.env` in any editor and fill these values:
 
 | Variable | Where to get it |
 |---|---|
 | `LUCID_CLIENT_ID` | Lucid Developer Portal → your OAuth app |
 | `LUCID_CLIENT_SECRET` | Lucid Developer Portal → your OAuth app |
 | `LUCID_REDIRECT_URI` | Set to `http://localhost:8000/callback` and register this exact URI in the portal |
-| `LUCID_ACCOUNT_REDIRECT_URI` | Set to `http://localhost:8000/callback-account` and register this in the portal too |
+| `LUCID_ACCOUNT_REDIRECT_URI` | Set to `http://localhost:8000/callback-account` and register this exact URI in the portal |
 | `LUCID_OAUTH_SCOPES` | Space-separated, e.g. `account.user:readonly user.profile offline_access` |
 | `LUCID_ACCOUNT_OAUTH_SCOPES` | e.g. `account.user offline_access` |
 | `LUCID_SCIM_TOKEN` | Lucid Admin Panel → Security → API Tokens |
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
 
-> **`offline_access` scope:** Adding `offline_access` causes Lucid to include a `refresh_token` alongside the access token, allowing silent refresh without re-authenticating every hour. Requires the scope to be enabled on your OAuth client in the Developer Portal first.
+Notes:
 
-> **MCP:** No MCP credentials go in `.env`. The app registers itself with Lucid's MCP server at runtime via Dynamic Client Registration — no portal setup required.
+- `offline_access` includes a refresh token (if that scope is enabled on your Lucid OAuth client).
+- MCP needs no credentials in `.env`; it uses Dynamic Client Registration at runtime.
+
+### 8) Run the health check, then start the app
+
+Run:
+
+```bash
+python scripts/doctor.py
+python main.py
+```
+
+Open [http://localhost:8000](http://localhost:8000) in your browser.
+
+### Quickstart (returning users)
+
+If your machine is already set up, this is enough:
+
+```bash
+git clone https://github.com/richardudell/lucid-api-explorer.git
+cd lucid-api-explorer
+pyenv local 3.12.9
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+cp .env.example .env
+python scripts/doctor.py
+python main.py
+```
 
 ### Demo mode (no real secrets)
 
@@ -293,18 +381,43 @@ python scripts/doctor.py --demo
 python main.py
 ```
 
-In demo mode, missing AI/SCIM secrets do not block startup. Those features show
-clear config/auth errors when invoked.
+In demo mode, missing AI/SCIM secrets do not block startup. Those features show clear config/auth errors when invoked.
 
-### Run
+### Daily run / stop commands
+
+Start (from repo root):
 
 ```bash
+source .venv/bin/activate
 python main.py
 ```
 
-Open [http://localhost:8000](http://localhost:8000).
+Stop server:
 
-> **Note:** Uvicorn's auto-reloader is disabled (`reload=False`). Reloading spawns a new worker process, which wipes in-memory OAuth state mid-flow and causes `state_mismatch` errors on the callback. Restart manually after code changes.
+- Press `Control + C` in Terminal
+
+### Common first-time issues
+
+**`python: command not found`**
+- Run `source ~/.zshrc`, then `python --version` again.
+- Confirm you ran `pyenv local 3.12.9` inside the repo folder.
+
+**`pip install -r requirements.txt` fails**
+- Confirm `python --version` is `3.12.x`.
+- Recreate venv:
+  - `rm -rf .venv`
+  - `python -m venv .venv`
+  - `source .venv/bin/activate`
+  - `python -m pip install --upgrade pip`
+  - `pip install -r requirements.txt`
+
+**Port already in use**
+- Another process is using `8000`. Stop it, or change the port in `.env`:
+  - set `PORT=8001`
+  - then run `python main.py`
+  - then open `http://localhost:8001`
+
+> **Note:** Uvicorn auto-reload is intentionally disabled (`reload=False`). Reloading can wipe in-memory OAuth state mid-flow and cause `state_mismatch` on callbacks. Restart manually after code changes.
 
 ### Security note for tunnels (ngrok)
 
