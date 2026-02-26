@@ -3054,6 +3054,16 @@ body.panel-expanded #workspace {
   border-radius: 3px; cursor: pointer; letter-spacing: 0.03em;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
+.sim-scenario-toggle {
+  padding: 3px 8px;
+  background: var(--surface-dark);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  border-radius: 3px;
+  letter-spacing: 0.03em;
+}
 .sim-pkce-toggle:hover { border-color: var(--lucid-blue); color: var(--text-primary); }
 .sim-pkce-toggle.sim-pkce-on {
   border-color: var(--terminal-green);

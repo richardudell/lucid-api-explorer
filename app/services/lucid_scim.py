@@ -102,7 +102,7 @@ async def execute_scim_call(endpoint_key: str, params: dict) -> dict:
     request_log = {
         "method": method,
         "url": url,
-        "headers": headers,
+        "headers": {k: _redact_auth(k, v) for k, v in headers.items()},
         "body": body,
         "timestamp": datetime.utcnow().isoformat(),
     }

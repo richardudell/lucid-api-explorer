@@ -13,6 +13,7 @@ Demo mode (DEMO_MODE=true or APP_ENV=demo):
 """
 
 import os
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 # Load .env from the project root.
@@ -29,6 +30,8 @@ DEMO_MODE: bool = (
     _truthy(os.getenv("DEMO_MODE"))
     or os.getenv("APP_ENV", "").strip().lower() == "demo"
 )
+
+ALLOW_REMOTE: bool = _truthy(os.getenv("ALLOW_REMOTE"))
 
 
 def _require(name: str, demo_default: str | None = None) -> str:
@@ -90,7 +93,7 @@ LUCID_ACCOUNT_OAUTH_SCOPES: list[str] = [s.strip() for s in _raw_account_scopes.
 LUCID_REST_BASE_URL: str = "https://api.lucid.co"
 
 # ── Lucid SCIM API — Static Bearer Token ────────────────────────────────────
-LUCID_SCIM_TOKEN: str = os.getenv("LUCID_SCIM_TOKEN", "")
+LUCID_SCIM_TOKEN: str = _require("LUCID_SCIM_TOKEN", "__DEMO_SCIM_DISABLED__")
 LUCID_SCIM_BASE_URL: str = "https://users.lucid.app/scim/v2"
 
 # ── Lucid MCP Server ─────────────────────────────────────────────────────────
@@ -100,7 +103,7 @@ LUCID_MCP_REGISTER_URL: str = "https://mcp.lucid.app/oauth/register"
 LUCID_MCP_REDIRECT_URI: str = "http://localhost:8000/mcp/callback"
 
 # ── Anthropic API ────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_KEY: str = _require("ANTHROPIC_API_KEY", "__DEMO_AI_DISABLED__")
 
 # ── Feature readiness flags ───────────────────────────────────────────────────
 LUCID_OAUTH_CONFIGURED: bool = (
@@ -114,4 +117,53 @@ ANTHROPIC_CONFIGURED: bool = not _is_placeholder(ANTHROPIC_API_KEY)
 
 # ── App settings ─────────────────────────────────────────────────────────────
 PORT: int = int(os.getenv("PORT", "8000"))
-DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
+HOST: str = os.getenv("HOST", "127.0.0.1").strip() or "127.0.0.1"
+DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+
+
+def _parse_csv_hosts(value: str) -> list[str]:
+    return [h.strip().lower() for h in value.split(",") if h.strip()]
+
+
+_raw_acs_hosts = os.getenv("SAML_ALLOWED_ACS_HOSTS", "lucid.app,localhost,127.0.0.1")
+SAML_ALLOWED_ACS_HOSTS: list[str] = _parse_csv_hosts(_raw_acs_hosts)
+
+
+def is_allowed_acs_url(url: str) -> tuple[bool, str]:
+    """
+    Validate ACS target URL.
+
+    - Requires absolute URL.
+    - Production hosts must use https.
+    - Host must match configured allowlist (exact or subdomain).
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "ACS URL could not be parsed."
+
+    if parsed.scheme not in {"http", "https"}:
+        return False, "ACS URL must use http or https."
+    if not parsed.netloc:
+        return False, "ACS URL must be absolute."
+
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False, "ACS URL host is missing."
+
+    is_local = host in {"localhost", "127.0.0.1", "::1"}
+    if not is_local and parsed.scheme != "https":
+        return False, "ACS URL must use https for non-local hosts."
+
+    allowed = False
+    for allowed_host in SAML_ALLOWED_ACS_HOSTS:
+        if host == allowed_host or host.endswith(f".{allowed_host}"):
+            allowed = True
+            break
+    if not allowed:
+        return (
+            False,
+            "ACS URL host is not in allowlist. "
+            f"Allowed hosts: {', '.join(SAML_ALLOWED_ACS_HOSTS)}",
+        )
+    return True, ""

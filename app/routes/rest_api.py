@@ -10,14 +10,15 @@ lucid_rest.execute_rest_call() and returns the structured result.
 All REST endpoints share the same pattern — no individual route per endpoint.
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.errors import error_response_from_exception, error_response_from_result, success_response
+from app.security import require_local_request_dep
 from app.services.lucid_rest import execute_rest_call
 
-router = APIRouter(prefix="/api/rest", tags=["REST API"])
+router = APIRouter(prefix="/api/rest", tags=["REST API"], dependencies=[Depends(require_local_request_dep)])
 
 
 class ExecuteRequest(BaseModel):

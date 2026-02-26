@@ -8,14 +8,15 @@ The frontend POSTs { endpoint, params } here. The route delegates to
 lucid_scim.execute_scim_call() and returns the structured result.
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.errors import error_response_from_exception, error_response_from_result, success_response
+from app.security import require_local_request_dep
 from app.services.lucid_scim import execute_scim_call
 
-router = APIRouter(prefix="/api/scim", tags=["SCIM API"])
+router = APIRouter(prefix="/api/scim", tags=["SCIM API"], dependencies=[Depends(require_local_request_dep)])
 
 
 class ExecuteRequest(BaseModel):

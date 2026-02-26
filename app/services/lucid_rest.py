@@ -287,10 +287,11 @@ async def execute_rest_call(endpoint_key: str, params: dict) -> dict:
             return _error_result(f"Invalid JSON body: {e}")
 
     # Record the outbound request for terminal display and narrative generation
+    request_headers_log = {k: _redact_auth(k, v) for k, v in headers.items()}
     request_log = {
         "method": method,
         "url": url,
-        "headers": headers,
+        "headers": request_headers_log,
         "body": body,
         "timestamp": datetime.utcnow().isoformat(),
     }
@@ -409,7 +410,7 @@ async def _execute_standard_import_call(
         request_log_local = {
             "method": "POST",
             "url": url,
-            "headers": headers,
+            "headers": {k: _redact_auth(k, v) for k, v in headers.items()},
             "body": {
                 **form_data,
                 "file": {
@@ -807,16 +808,21 @@ async def _execute_token_management_call(
     # For introspect/revoke, the response never contains a raw token, so no redaction needed.
     display_body = dict(response_body) if isinstance(response_body, dict) else response_body
     if isinstance(display_body, dict) and "access_token" in display_body and endpoint_key == "refreshAccessToken":
-        tok = display_body["access_token"]
-        # Show enough to verify it changed, but annotate its meaning
+        tok = str(display_body.get("access_token") or "")
+        refresh_tok = str(display_body.get("refresh_token") or "")
+        tok_preview = (tok[:12] + "••••") if tok else None
+        refresh_preview = (refresh_tok[:12] + "••••") if refresh_tok else None
+        # Preserve educational metadata without returning raw tokens.
         display_body = {
-            "access_token": tok,  # full value — intentionally shown for educational use
+            "access_token_preview": tok_preview,
             "token_type": display_body.get("token_type", "Bearer"),
             "expires_in": display_body.get("expires_in"),
-            "refresh_token": display_body.get("refresh_token"),  # full value if present
+            "refresh_token_preview": refresh_preview,
             "scope": display_body.get("scope"),
-            # Friendly annotation keys (not from Lucid — added by this app)
-            "_note": "Token saved to server memory. Use 'Use user token' / 'Use account token' buttons to inspect or revoke it.",
+            "_note": (
+                "Tokens were saved to server memory. "
+                "Use the token-source buttons in params to populate token fields."
+            ),
         }
 
     result = {

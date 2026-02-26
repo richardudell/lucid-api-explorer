@@ -3798,7 +3798,7 @@ document.addEventListener('DOMContentLoaded', init);
 // ── Step configs — 9-step flow matching OAuth Authorization Code + PKCE triangle model ──
 // type:'internal' = actor pulse only, no packet
 // type:'packet'   = clickable/interceptable packet on one of three tracks
-const SIM_STEPS = [
+const SIM_OAUTH_STEPS = [
   {
     type: 'internal', actor: 'server', durationMs: 1200,
     insecureDesc: 'Step 1: Your Server generates state token (no PKCE). Internal only.',
@@ -4016,7 +4016,7 @@ Browser tracks never carry access_token.`,
   },
 ];
 
-const SIM_PWNED = {
+const SIM_OAUTH_PWNED = {
   token:  'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9\u2026',
   scopes: 'account.user, account.document',
   lessons: [
@@ -4027,7 +4027,7 @@ const SIM_PWNED = {
   ],
 };
 
-const SIM_DEFENDED = {
+const SIM_OAUTH_DEFENDED = {
   defenses: [
     { label: 'Step 1', text: 'code_verifier + code_challenge generated server-side \u2014 verifier never transmitted' },
     { label: 'Wave 1', text: '302 redirect includes code_challenge, pre-binding the future code' },
@@ -4040,6 +4040,258 @@ const SIM_DEFENDED = {
   lesson: 'Triangle layout makes trust boundaries explicit: browser tracks can leak code, but only Track 3 can prove possession with code_verifier.',
 };
 
+const SIM_SAML_STEPS = [
+  {
+    type: 'internal', actor: 'server', durationMs: 1200,
+    insecureDesc: 'Step 1: IdP session is prepared without strict request checks.',
+    pkceDesc:     'Step 1: IdP session is prepared with strict issuer/ACS and replay checks.',
+  },
+  {
+    type: 'packet', track: 2, dir: 'up-left',
+    packetClass: 'sim-pkt-auth-url', label: 'GET /login?sso=1',
+    flightMs: 2800,
+    desc: 'Track 2: Browser asks Lucid SP to start SSO.',
+    actorFrom: 'lucid', actorTo: 'browser',
+    insecure: {
+      canTriggerPwned: false,
+      flashIcon: '\u26a0', flashTitle: 'SP redirect observed',
+      flashBody: 'The redirect includes a SAMLRequest and RelayState.',
+      resultLabel: 'OBSERVED', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'SP bootstraps SAML with a browser redirect',
+      resultPayload:
+`Track 2 (Lucid SP → Browser):
+302 Location: /saml/sso
+  ?SAMLRequest=nVJNb9swDL3...
+  &RelayState=team_abc`,
+    },
+    pkce: {
+      flashIcon: '\ud83d\udee1', flashTitle: 'SP redirect observed',
+      flashBody: 'Request is visible, but strict IdP checks gate what is accepted.',
+      resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'Visibility alone is not enough to forge a valid login',
+      resultPayload:
+`IdP defenses:
+- validate request destination + issuer
+- enforce ACS allowlist`,
+    },
+  },
+  {
+    type: 'packet', track: 1, dir: 'down-left',
+    packetClass: 'sim-pkt-redirect', label: 'GET /saml/sso',
+    flightMs: 2800,
+    desc: 'Track 1: Browser sends SAMLRequest to your IdP.',
+    actorFrom: 'browser', actorTo: 'server',
+    insecure: {
+      canTriggerPwned: false,
+      flashIcon: '\u26a1', flashTitle: 'AuthnRequest intercepted',
+      flashBody: 'In insecure mode, attacker can tamper RelayState/ACS fields.',
+      resultLabel: 'INTERCEPTED', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'IdP may trust request fields from the browser too easily',
+      resultPayload:
+`Track 1 (Browser → IdP):
+GET /saml/sso
+  ?SAMLRequest=...
+  &RelayState=team_abc
+  &AssertionConsumerServiceURL=https://attacker.example/capture`,
+    },
+    pkce: {
+      flashIcon: '\ud83d\udee1', flashTitle: 'AuthnRequest intercepted',
+      flashBody: 'Strict mode rejects untrusted ACS overrides and unknown issuers.',
+      resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'Request tampering fails before assertion issuance',
+      resultPayload:
+`IdP response:
+400 Invalid AuthnRequest
+
+Reason:
+ACS URL is not the configured Lucid ACS.`,
+    },
+  },
+  {
+    type: 'internal', actor: 'server', durationMs: 1200,
+    insecureDesc: 'Step 4: IdP builds and signs assertion with relaxed validation.',
+    pkceDesc:     'Step 4: IdP signs assertion only after issuer/audience/time checks.',
+  },
+  {
+    type: 'packet', track: 1, dir: 'up-right',
+    packetClass: 'sim-pkt-code', label: 'HTML form + SAMLResponse',
+    flightMs: 2800,
+    desc: 'Track 1: IdP returns auto-submit HTML form to Browser.',
+    actorFrom: 'server', actorTo: 'browser',
+    insecure: {
+      canTriggerPwned: false,
+      flashIcon: '\ud83d\udca5', flashTitle: 'Response package intercepted',
+      flashBody: 'Attacker can replay the SAMLResponse if checks are weak.',
+      resultLabel: 'INTERCEPTED', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Signed assertion leaves IdP through browser',
+      resultPayload:
+`Track 1 (IdP → Browser):
+<form action="https://lucid.app/saml/acs" method="post">
+  <input name="SAMLResponse" value="PHNhbWxwOlJlc3BvbnNl..." />
+</form>`,
+    },
+    pkce: {
+      flashIcon: '\ud83d\udee1', flashTitle: 'Response package intercepted',
+      flashBody: 'Replay is blocked by strict timestamps and request correlation.',
+      resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'Captured assertion still fails if not fresh and expected',
+      resultPayload:
+`SP checks:
+- InResponseTo matches request
+- NotOnOrAfter still valid
+- signature matches registered cert`,
+    },
+  },
+  {
+    type: 'packet', track: 2, dir: 'down-right',
+    packetClass: 'sim-pkt-token-req', label: 'POST /saml/acs',
+    flightMs: 2800,
+    desc: 'Track 2: Browser posts SAMLResponse to Lucid ACS.',
+    actorFrom: 'browser', actorTo: 'lucid',
+    insecure: {
+      canTriggerPwned: false,
+      flashIcon: '\u26a0', flashTitle: 'ACS POST observed',
+      flashBody: 'Browser is the courier for the assertion package.',
+      resultLabel: 'PARTIAL', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Courier path is exposed to interception attempts',
+      resultPayload:
+`Track 2 (Browser → Lucid SP):
+POST /saml/acs
+SAMLResponse=...
+RelayState=team_abc`,
+    },
+    pkce: {
+      flashIcon: '\ud83d\udee1', flashTitle: 'ACS POST observed',
+      flashBody: 'SP accepts only assertions that pass full signature and audience checks.',
+      resultLabel: 'BLOCKED', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'Transport visibility does not bypass signature validation',
+      resultPayload:
+`Lucid rejects malformed or mis-scoped assertions:
+403 Invalid SAML assertion`,
+    },
+  },
+  {
+    type: 'internal', actor: 'lucid', durationMs: 1200,
+    insecureDesc: 'Step 7: Lucid validates assertion with weaker anti-replay controls.',
+    pkceDesc:     'Step 7: Lucid enforces strict signature, audience, recipient, and expiry checks.',
+  },
+  {
+    type: 'packet', track: 3, dir: 'left',
+    packetClass: 'sim-pkt-token', label: 'Session cookie',
+    flightMs: 2800,
+    desc: 'Track 3: Lucid establishes user session after successful SAML validation.',
+    actorFrom: 'lucid', actorTo: 'server',
+    insecure: {
+      canTriggerPwned: true,
+      flashIcon: '\ud83d\udc80', flashTitle: 'ASSERTION REPLAYED',
+      flashBody: 'Session established from a captured or tampered assertion.',
+      resultLabel: 'STOLEN', resultLabelClass: 'sim-result-label-attack',
+      resultTitle: 'Attacker successfully forges SAML login session',
+      resultPayload:
+`Set-Cookie: lucid_session=eyJzdWIiOiJ2aWN0aW0ifQ...
+Status: authenticated`,
+    },
+    pkce: {
+      canTriggerDefended: true,
+      flashIcon: '\ud83d\udee1', flashTitle: 'Assertion rejected',
+      flashBody: 'Tampered or replayed SAMLResponse is blocked before session creation.',
+      resultLabel: 'SECURE', resultLabelClass: 'sim-result-label-defense',
+      resultTitle: 'Session only issued for trusted signed assertions',
+      resultPayload:
+`Validation result:
+- Signature OK
+- Audience OK
+- Recipient OK
+- Replay check OK`,
+    },
+  },
+];
+
+const SIM_SAML_PWNED = {
+  token: 'lucid_session=eyJzdWIiOiJ2aWN0aW0ifQ...',
+  scopes: 'authenticated SSO session',
+  lessons: [
+    'If the IdP accepts untrusted ACS/issuer input, attackers can misroute assertions.',
+    'Replay defenses (InResponseTo + timestamp windows) are required, not optional.',
+    'Signature validation and strict audience/recipient checks prevent forged logins.',
+    'Toggle strict mode and replay to see tampered assertions fail.',
+  ],
+};
+
+const SIM_SAML_DEFENDED = {
+  defenses: [
+    { label: 'Step 1', text: 'IdP enables strict request validation before assertion generation' },
+    { label: 'Wave 1', text: 'SP redirect is visible, but request trust is not assumed from browser transit' },
+    { label: 'Wave 2', text: 'Tampered AuthnRequest fields are rejected by ACS/issuer allowlist checks' },
+    { label: 'Wave 3', text: 'Captured SAMLResponse cannot be replayed outside its validity window' },
+    { label: 'Wave 4', text: 'ACS accepts only correctly signed assertions for expected audience/recipient' },
+    { label: 'Wave 5', text: 'Session cookie is issued only after full validation succeeds' },
+  ],
+  lesson: 'Triangle layout shows where SAML data crosses browser boundaries; strict validation neutralizes interception and replay.',
+};
+
+const SIM_SCENARIOS = {
+  oauth: {
+    id: 'oauth',
+    title: 'OAuth Packet Intercept',
+    subtitle: 'You are the attacker. Click glowing packets in flight to intercept them. Toggle PKCE to watch the same attacks get blocked.',
+    actorServerLabel: 'Your Server',
+    actorServerSub: 'this app',
+    actorLucidLabel: 'Lucid',
+    ariaLabel: 'OAuth simulation steps',
+    toggleOffLabel: 'Without PKCE',
+    toggleOnLabel: 'With PKCE',
+    startModeOffLabel: 'Insecure',
+    startModeOnLabel: 'With PKCE',
+    modeOffBadge: 'INSECURE',
+    modeOnBadge: 'SECURED',
+    missedBody: 'All packets landed safely this time. In insecure mode, a real attacker <em>could</em> have stolen the token on wave 6 - try clicking the glowing packets next run.',
+    steps: SIM_OAUTH_STEPS,
+    stepSummary: [
+      'Generate state / PKCE secrets',
+      '302 redirect to Lucid',
+      'GET /authorize',
+      'User consent at Lucid',
+      '302 with code to browser',
+      'GET /callback delivery',
+      'Validate state + parse code',
+      'POST /token exchange',
+      'access_token response',
+    ],
+    pwned: SIM_OAUTH_PWNED,
+    defended: SIM_OAUTH_DEFENDED,
+  },
+  saml: {
+    id: 'saml',
+    title: 'SAML Assertion Intercept',
+    subtitle: 'You are the attacker. Intercept SAML packets in flight. Toggle strict validation to see replay and tamper attacks get blocked.',
+    actorServerLabel: 'Your IdP',
+    actorServerSub: 'this app',
+    actorLucidLabel: 'Lucid SP',
+    ariaLabel: 'SAML simulation steps',
+    toggleOffLabel: 'Weak checks',
+    toggleOnLabel: 'Strict checks',
+    startModeOffLabel: 'Weak checks',
+    startModeOnLabel: 'Strict checks',
+    modeOffBadge: 'INSECURE',
+    modeOnBadge: 'SECURED',
+    missedBody: 'Flow completed with no interception. In weak mode, replay attacks can still succeed if assertions are captured - intercept packets to simulate it.',
+    steps: SIM_SAML_STEPS,
+    stepSummary: [
+      'Prepare IdP request policy',
+      'SP redirect to browser',
+      'Browser sends AuthnRequest to IdP',
+      'IdP signs assertion',
+      'IdP returns SAMLResponse form',
+      'Browser POSTs to Lucid ACS',
+      'Lucid validates assertion',
+      'Session creation result',
+    ],
+    pwned: SIM_SAML_PWNED,
+    defended: SIM_SAML_DEFENDED,
+  },
+};
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let simPkceOn           = false;
 let simWaveIndex        = 0;
@@ -4047,6 +4299,7 @@ let simFlightTimer      = null;
 let simLocked           = true;
 let simRunning          = false;
 let simEverIntercepted  = false; // true only if user clicked at least one packet this run
+let simScenario         = 'oauth';
 const SIM_PACKET_WIDTH_PX = 116; // matches enlarged CSS packet size for consistent travel endpoints
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -4065,6 +4318,37 @@ function simSetOverlay(name) {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('sim-overlay-visible', key === name);
   });
+}
+
+function simCurrentScenario() {
+  return SIM_SCENARIOS[simScenario] || SIM_SCENARIOS.oauth;
+}
+
+function simCurrentSteps() {
+  return simCurrentScenario().steps;
+}
+
+function simApplyScenarioUi() {
+  const scenario = simCurrentScenario();
+  const startTitle = document.getElementById('sim-overlay-start-title');
+  const startSub = document.getElementById('sim-overlay-start-sub');
+  const pwnedTitle = document.getElementById('sim-overlay-pwned-title');
+  const defendedTitle = document.getElementById('sim-overlay-defended-title');
+  const missedBody = document.getElementById('sim-overlay-missed-body');
+  const serverLabel = document.getElementById('sim-actor-server-label');
+  const serverSub = document.getElementById('sim-actor-server-sub');
+  const lucidLabel = document.getElementById('sim-actor-lucid-label');
+  const strip = document.getElementById('sim-step-strip');
+
+  if (startTitle) startTitle.textContent = scenario.title;
+  if (startSub) startSub.textContent = scenario.subtitle;
+  if (pwnedTitle) pwnedTitle.textContent = simScenario === 'oauth' ? 'YOU FORGED THE TOKEN' : 'YOU FORGED THE ASSERTION';
+  if (defendedTitle) defendedTitle.textContent = simScenario === 'oauth' ? 'All attacks blocked' : 'All SAML attacks blocked';
+  if (missedBody) missedBody.innerHTML = scenario.missedBody;
+  if (serverLabel) serverLabel.textContent = scenario.actorServerLabel;
+  if (serverSub) serverSub.textContent = scenario.actorServerSub;
+  if (lucidLabel) lucidLabel.textContent = scenario.actorLucidLabel;
+  if (strip) strip.setAttribute('aria-label', scenario.ariaLabel);
 }
 
 function simActorEl(name) { return document.getElementById(`sim-actor-${name}`); }
@@ -4147,17 +4431,7 @@ function simCancelFlight() {
 }
 
 function simStepSummary(index) {
-  const labels = [
-    'Generate state / PKCE secrets',
-    '302 redirect to Lucid',
-    'GET /authorize',
-    'User consent at Lucid',
-    '302 with code to browser',
-    'GET /callback delivery',
-    'Validate state + parse code',
-    'POST /token exchange',
-    'access_token response',
-  ];
+  const labels = simCurrentScenario().stepSummary || [];
   return labels[index] || `Step ${index + 1}`;
 }
 
@@ -4177,7 +4451,9 @@ function simRenderIdleHint() {
 function simRenderStepStrip() {
   const strip = document.getElementById('sim-step-strip');
   if (!strip) return;
-  strip.innerHTML = SIM_STEPS.map((_, i) => `
+  const steps = simCurrentSteps();
+  strip.style.gridTemplateColumns = `repeat(${steps.length}, minmax(0, 1fr))`;
+  strip.innerHTML = steps.map((_, i) => `
     <div class="sim-step-card" id="sim-step-card-${i}">
       <div class="sim-step-num">Step ${i + 1}</div>
       <div class="sim-step-text">${simEsc(simStepSummary(i))}</div>
@@ -4185,7 +4461,7 @@ function simRenderStepStrip() {
 }
 
 function simHighlightStep(index) {
-  for (let i = 0; i < SIM_STEPS.length; i += 1) {
+  for (let i = 0; i < simCurrentSteps().length; i += 1) {
     const card = document.getElementById(`sim-step-card-${i}`);
     if (!card) continue;
     card.classList.toggle('sim-step-card-active', i === index);
@@ -4203,6 +4479,7 @@ function simUnlock() {
   const lock = document.getElementById('sim-lock-icon');
   if (lock) lock.remove();
 
+  simApplyScenarioUi();
   simRenderStepStrip();
   simRenderIdleHint();
   simSetOverlay('start');
@@ -4213,28 +4490,48 @@ function simUnlock() {
 function simUpdateStartOverlayMode() {
   const mode = document.getElementById('sim-start-mode');
   if (!mode) return;
-  mode.textContent = `Starting mode: ${simPkceOn ? 'With PKCE' : 'Insecure'}`;
+  const scenario = simCurrentScenario();
+  mode.textContent = `Starting mode: ${simPkceOn ? scenario.startModeOnLabel : scenario.startModeOffLabel}`;
 }
 
 // ── PKCE toggle ────────────────────────────────────────────────────────────────
-function simTogglePkce() {
-  simPkceOn = !simPkceOn;
+function simRefreshModeUi() {
+  const scenario = simCurrentScenario();
   const toggleBtn = document.getElementById('sim-pkce-toggle');
   const badge     = document.getElementById('sim-mode-badge');
   if (toggleBtn) {
-    toggleBtn.textContent = simPkceOn ? 'With PKCE' : 'Without PKCE';
+    toggleBtn.textContent = simPkceOn ? scenario.toggleOnLabel : scenario.toggleOffLabel;
     toggleBtn.classList.toggle('sim-pkce-on', simPkceOn);
   }
   if (badge) {
-    badge.textContent = simPkceOn ? 'SECURED' : 'INSECURE';
+    badge.textContent = simPkceOn ? scenario.modeOnBadge : scenario.modeOffBadge;
     badge.className   = 'sim-mode-badge ' + (simPkceOn ? 'sim-mode-secure' : 'sim-mode-insecure');
   }
   simUpdateStartOverlayMode();
+}
+
+function simTogglePkce() {
+  simPkceOn = !simPkceOn;
+  simRefreshModeUi();
   if (simRunning) {
     simCancelFlight();
     simClearActors();
     simStartRun();
   }
+}
+
+function simSetScenario(nextScenario) {
+  if (!SIM_SCENARIOS[nextScenario] || simScenario === nextScenario) return;
+  simScenario = nextScenario;
+  simPkceOn = false;
+  simCancelFlight();
+  simClearActors();
+  simApplyScenarioUi();
+  simRenderStepStrip();
+  simRenderIdleHint();
+  simRefreshModeUi();
+  simRunning = false;
+  simSetOverlay('start');
 }
 
 // ── Start run ──────────────────────────────────────────────────────────────────
@@ -4251,7 +4548,8 @@ function simStartRun() {
 
 // ── Step orchestrator (handles both internal pauses and packet waves) ──────────
 function simRunStep(index) {
-  if (index >= SIM_STEPS.length) {
+  const steps = simCurrentSteps();
+  if (index >= steps.length) {
     // End screens are only earned by intercepting — if user let everything land, show neutral result
     if (simPkceOn) {
       simEndDefended(); // In PKCE mode the defenses held regardless — show the checklist
@@ -4263,7 +4561,7 @@ function simRunStep(index) {
     return;
   }
 
-  const step = SIM_STEPS[index];
+  const step = steps[index];
   simWaveIndex = index;
   simHighlightStep(index);
 
@@ -4274,13 +4572,13 @@ function simRunStep(index) {
   if (step.type === 'internal') {
     // Replaces old internal text injection in result panel.
     // Why: internal guidance now lives in the persistent step strip + status bar.
-    if (hudEl)  hudEl.textContent  = `Step ${index + 1} / ${SIM_STEPS.length}`;
+    if (hudEl)  hudEl.textContent  = `Step ${index + 1} / ${steps.length}`;
     simRunInternal(step, () => simRunStep(index + 1));
   } else {
     // ── Packet wave ───────────────────────────────────────────────────────────
     // Count only packet steps for "Wave X / N" display
-    const waveNum     = SIM_STEPS.slice(0, index + 1).filter(s => s.type === 'packet').length;
-    const totalWaves  = SIM_STEPS.filter(s => s.type === 'packet').length;
+    const waveNum     = steps.slice(0, index + 1).filter(s => s.type === 'packet').length;
+    const totalWaves  = steps.filter(s => s.type === 'packet').length;
     if (hudEl)  hudEl.textContent  = `Wave ${waveNum} / ${totalWaves}`;
     // Slightly faster later waves increase tension while staying readable.
     const flightMs = waveNum >= 3 ? 2200 : step.flightMs;
@@ -4472,16 +4770,17 @@ function simPacketLanded(step, pktEl, index) {
 // ── End screens ────────────────────────────────────────────────────────────────
 function simEndPwned() {
   simRunning = false;
+  const summary = simCurrentScenario().pwned;
   const body   = document.getElementById('sim-pwned-body');
   const lesson = document.getElementById('sim-pwned-lesson');
   if (body) {
     body.innerHTML = `
       <div class="sim-pwned-token">
-        <span class="sim-pwned-token-label">access_token:</span>
-        <span class="sim-pwned-token-value">${simEsc(SIM_PWNED.token)}</span>
+        <span class="sim-pwned-token-label">${simEsc(simScenario === 'oauth' ? 'access_token:' : 'artifact:')}</span>
+        <span class="sim-pwned-token-value">${simEsc(summary.token)}</span>
       </div>
-      <div class="sim-pwned-scopes">Scopes stolen: <strong>${simEsc(SIM_PWNED.scopes)}</strong></div>
-      <div class="sim-pwned-lessons">${SIM_PWNED.lessons.map(l => `<div class="sim-pwned-lesson-line">\u2014 ${simEsc(l)}</div>`).join('')}</div>`;
+      <div class="sim-pwned-scopes">Impact: <strong>${simEsc(summary.scopes)}</strong></div>
+      <div class="sim-pwned-lessons">${summary.lessons.map(l => `<div class="sim-pwned-lesson-line">\u2014 ${simEsc(l)}</div>`).join('')}</div>`;
   }
   if (lesson) lesson.textContent = '';
   simSetOverlay('pwned');
@@ -4489,16 +4788,17 @@ function simEndPwned() {
 
 function simEndDefended() {
   simRunning = false;
+  const summary = simCurrentScenario().defended;
   const body = document.getElementById('sim-defended-body');
   if (body) {
-    const listHtml = SIM_DEFENDED.defenses.map(d =>
+    const listHtml = summary.defenses.map(d =>
       `<div class="sim-defended-item">
         <span class="sim-defended-wave">${simEsc(d.label)}</span>
         <span class="sim-defended-text">${simEsc(d.text)}</span>
       </div>`).join('');
     body.innerHTML = `
       <div class="sim-defended-list">${listHtml}</div>
-      <div class="sim-defended-lesson">${simEsc(SIM_DEFENDED.lesson)}</div>`;
+      <div class="sim-defended-lesson">${simEsc(summary.lesson)}</div>`;
   }
   simSetOverlay('defended');
 }
@@ -4514,6 +4814,11 @@ function initSimulate() {
   // PKCE toggle
   const toggleBtn = document.getElementById('sim-pkce-toggle');
   if (toggleBtn) toggleBtn.addEventListener('click', simTogglePkce);
+  const scenarioToggle = document.getElementById('sim-scenario-toggle');
+  if (scenarioToggle) {
+    scenarioToggle.value = simScenario;
+    scenarioToggle.addEventListener('change', (e) => simSetScenario(e.target.value));
+  }
 
   // Replay buttons on end screens
   const replayPwned    = document.getElementById('sim-btn-replay-pwned');
@@ -4533,6 +4838,8 @@ function initSimulate() {
   // OAuth. updateAuthUI() also calls simUnlock() when REST auth is confirmed, making
   // that path explicit and intentional rather than relying on this fallback alone.
   simUnlock();
+  simApplyScenarioUi();
+  simRefreshModeUi();
   simLayoutTriangleTracks();
   window.addEventListener('resize', simLayoutTriangleTracks);
 }

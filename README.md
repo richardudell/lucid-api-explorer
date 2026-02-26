@@ -306,6 +306,18 @@ Open [http://localhost:8000](http://localhost:8000).
 
 > **Note:** Uvicorn's auto-reloader is disabled (`reload=False`). Reloading spawns a new worker process, which wipes in-memory OAuth state mid-flow and causes `state_mismatch` errors on the callback. Restart manually after code changes.
 
+### Security note for tunnels (ngrok)
+
+This tool is designed for local workstation use. If you expose it through a
+tunnel (for example `ngrok`) you are exposing live OAuth/session controls and
+token-bearing workflows to anyone who can reach that URL.
+
+- Use a dedicated test tenant and least-privilege scopes.
+- Never run with production credentials when a tunnel is public.
+- Close the tunnel immediately after SAML testing is complete.
+- Remote access is blocked by default; only set `ALLOW_REMOTE=true` when you
+  intentionally need external access.
+
 ---
 
 ## Project structure

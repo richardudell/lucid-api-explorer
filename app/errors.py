@@ -224,10 +224,12 @@ def error_response_from_result(
         or f"Upstream request failed with status {status}."
     )
     upstream = _upstream_from_result(result)
+    safe_body = _sanitize_value(body)
     details = {
-        "upstream_body": body,
+        "upstream_body": safe_body,
         "auth_method": result.get("auth_method"),
     }
+    safe_result = _safe_result_for_client(result)
     retry_after = None
     headers = result.get("response_headers")
     if isinstance(headers, dict):
@@ -245,7 +247,7 @@ def error_response_from_result(
             upstream=upstream,
             retryable=False,
             recommended_action="reauth",
-            data=result,
+            data=safe_result,
         )
     if status == 429:
         return error_response(
@@ -257,7 +259,7 @@ def error_response_from_result(
             upstream=upstream,
             retryable=True,
             recommended_action="retry",
-            data=result,
+            data=safe_result,
         )
     if status == 400:
         cat: ErrorCategory = "validation_error"
@@ -289,7 +291,7 @@ def error_response_from_result(
             upstream=upstream,
             retryable=False,
             recommended_action=_default_action_for_category(cat),
-            data=result,
+            data=safe_result,
         )
     if status >= 500:
         return error_response(
@@ -301,7 +303,7 @@ def error_response_from_result(
             upstream=upstream,
             retryable=True,
             recommended_action="retry",
-            data=result,
+            data=safe_result,
         )
     return error_response(
         request,
@@ -312,7 +314,7 @@ def error_response_from_result(
         upstream=upstream,
         retryable=False,
         recommended_action=_default_action_for_category(default_category),
-        data=result,
+        data=safe_result,
     )
 
 
@@ -382,3 +384,65 @@ def _log_error(
         upstream.status_code if upstream else None,
         message,
     )
+
+
+def _safe_result_for_client(result: dict[str, Any]) -> dict[str, Any]:
+    request = result.get("request") if isinstance(result.get("request"), dict) else {}
+    headers = request.get("headers") if isinstance(request.get("headers"), dict) else {}
+    safe_headers: dict[str, Any] = {}
+    for k, v in headers.items():
+        lk = str(k).lower()
+        if lk == "authorization":
+            safe_headers[k] = _redact_bearer(v)
+        else:
+            safe_headers[k] = v
+    safe_request = {
+        "method": request.get("method"),
+        "url": request.get("url"),
+        "headers": safe_headers,
+        "body": _sanitize_value(request.get("body")),
+        "timestamp": request.get("timestamp"),
+    }
+    return {
+        "status_code": result.get("status_code"),
+        "body": _sanitize_value(result.get("body")),
+        "request": safe_request,
+        "response_headers": result.get("response_headers") if isinstance(result.get("response_headers"), dict) else {},
+        "auth_method": result.get("auth_method"),
+        "latency_ms": result.get("latency_ms"),
+        "curl_command": result.get("curl_command", ""),
+        "python_snippet": result.get("python_snippet", ""),
+    }
+
+
+def _sanitize_value(value: Any, key_hint: str | None = None) -> Any:
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for k, v in value.items():
+            cleaned[k] = _sanitize_value(v, key_hint=str(k))
+        return cleaned
+    if isinstance(value, list):
+        return [_sanitize_value(v, key_hint=key_hint) for v in value]
+    if isinstance(value, str):
+        low_key = (key_hint or "").lower()
+        sensitive_key = (
+            low_key in {"token", "access_token", "refresh_token", "id_token", "client_secret", "authorization", "password", "api_key", "apikey"}
+            or low_key.endswith("_token")
+            or low_key.endswith("_secret")
+        )
+        if sensitive_key:
+            if low_key == "authorization":
+                return _redact_bearer(value)
+            return "••••••••"
+        return value
+    return value
+
+
+def _redact_bearer(value: Any) -> str:
+    raw = str(value or "")
+    if not raw.lower().startswith("bearer "):
+        return "••••••••"
+    tok = raw[7:].strip()
+    if not tok:
+        return "Bearer ••••••••"
+    return f"Bearer {tok[:8]}••••••••"

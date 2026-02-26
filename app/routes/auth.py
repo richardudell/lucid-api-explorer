@@ -26,14 +26,17 @@ Implementation note — deduplication:
 """
 
 import secrets
+import hashlib
+import base64
 import httpx
+import logging
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 from urllib.parse import urlencode, quote as urlquote
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from fastapi.responses import JSONResponse, RedirectResponse
 
 import app.state as state
@@ -51,8 +54,10 @@ from app.config import (
     LUCID_OAUTH_CONFIGURED,
     SCIM_CONFIGURED,
 )
+from app.security import require_local_request_dep
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_local_request_dep)])
+log = logging.getLogger(__name__)
 
 # ── OAuth state token TTL ─────────────────────────────────────────────────────
 _OAUTH_STATE_TTL = 600  # seconds (10 minutes) — reject callbacks older than this
@@ -104,6 +109,8 @@ class OAuthFlowConfig:
     set_oauth_state: Callable[[str | None], None]  # Writes CSRF state into app.state
     get_oauth_state_created_at: Callable[[], datetime | None]  # Reads TTL timestamp
     set_oauth_state_created_at: Callable[[datetime | None], None]  # Writes TTL timestamp
+    get_pkce_verifier: Callable[[], str | None]
+    set_pkce_verifier: Callable[[str | None], None]
     success_redirect: str         # URL to redirect to on success (e.g. "/?auth_success=true")
     error_prefix: str             # Query param prefix for error redirects (e.g. "auth_error")
 
@@ -122,6 +129,8 @@ def _user_flow_config() -> OAuthFlowConfig:
         set_oauth_state=lambda v: setattr(state, "rest_oauth_state", v),
         get_oauth_state_created_at=lambda: state.rest_oauth_state_created_at,
         set_oauth_state_created_at=lambda v: setattr(state, "rest_oauth_state_created_at", v),
+        get_pkce_verifier=lambda: state.rest_pkce_verifier,
+        set_pkce_verifier=lambda v: setattr(state, "rest_pkce_verifier", v),
         success_redirect="/?auth_success=true",
         error_prefix="auth_error",
     )
@@ -139,6 +148,8 @@ def _account_flow_config() -> OAuthFlowConfig:
         set_oauth_state=lambda v: setattr(state, "rest_account_oauth_state", v),
         get_oauth_state_created_at=lambda: state.rest_account_oauth_state_created_at,
         set_oauth_state_created_at=lambda v: setattr(state, "rest_account_oauth_state_created_at", v),
+        get_pkce_verifier=lambda: state.rest_account_pkce_verifier,
+        set_pkce_verifier=lambda v: setattr(state, "rest_account_pkce_verifier", v),
         success_redirect="/?account_auth_success=true",
         error_prefix="account_auth_error",
     )
@@ -178,15 +189,19 @@ def _run_oauth_initiate(cfg: OAuthFlowConfig, scopes: str | None) -> RedirectRes
     cfg.set_oauth_state(oauth_state)
     cfg.set_oauth_state_created_at(datetime.utcnow())
 
+    pkce_verifier, pkce_challenge = _generate_pkce_pair()
+    cfg.set_pkce_verifier(pkce_verifier)
+
     _append_step(
         cfg.log_list,
         step=1,
         label="State token generated",
         detail=(
-            "A cryptographically random value created with secrets.token_urlsafe(32). "
-            "Stored in server memory. Lucid will echo it back on the callback — "
-            "if it doesn't match, we reject the request as a potential CSRF attack."
-        ),
+                "A cryptographically random value created with secrets.token_urlsafe(32). "
+                "Stored in server memory. Lucid will echo it back on the callback — "
+                "if it doesn't match, we reject the request as a potential CSRF attack. "
+                "A PKCE verifier/challenge pair is also generated for code-exchange binding."
+            ),
         status="ok",
         request=None,
         response={"state_token": oauth_state[:8] + "••••••••  (truncated for display)"},
@@ -204,6 +219,8 @@ def _run_oauth_initiate(cfg: OAuthFlowConfig, scopes: str | None) -> RedirectRes
         "redirect_uri": cfg.redirect_uri,
         "response_type": "code",
         "state": oauth_state,
+        "code_challenge": pkce_challenge,
+        "code_challenge_method": "S256",
     })
     scope_param = "scope=" + urlquote(scope_str, safe=":")
     authorization_url = f"{cfg.auth_url}?{base_params}&{scope_param}"
@@ -228,6 +245,7 @@ def _run_oauth_initiate(cfg: OAuthFlowConfig, scopes: str | None) -> RedirectRes
                 "response_type": "code",
                 "scope": scope_str,
                 "state": oauth_state[:8] + "•••• (truncated)",
+                "code_challenge_method": "S256",
             },
         },
         response=None,
@@ -261,6 +279,7 @@ async def _run_oauth_callback(
             request=None,
             response={"error": error, "error_description": error_description or ""},
         )
+        cfg.set_pkce_verifier(None)
         return err_redirect(error)
 
     # Step 3b: No code returned
@@ -278,6 +297,7 @@ async def _run_oauth_callback(
             request=None,
             response={"error": "no_code", "raw_params": {"state": state_param}},
         )
+        cfg.set_pkce_verifier(None)
         return err_redirect("no_code_returned")
 
     # Step 3c: Code received
@@ -305,6 +325,7 @@ async def _run_oauth_callback(
         if age > _OAUTH_STATE_TTL:
             cfg.set_oauth_state(None)
             cfg.set_oauth_state_created_at(None)
+            cfg.set_pkce_verifier(None)
             _append_step(
                 cfg.log_list,
                 step=4,
@@ -322,6 +343,7 @@ async def _run_oauth_callback(
 
     # Step 4b: CSRF state comparison
     if state_param != cfg.get_oauth_state():
+        cfg.set_pkce_verifier(None)
         _append_step(
             cfg.log_list,
             step=4,
@@ -354,12 +376,26 @@ async def _run_oauth_callback(
     )
 
     # Step 5: Exchange authorization code for access token (server-to-server)
+    pkce_verifier = cfg.get_pkce_verifier()
+    if not pkce_verifier:
+        _append_step(
+            cfg.log_list,
+            step=5,
+            label="Missing PKCE verifier — request rejected",
+            detail="PKCE verifier was missing from server state. Start a new OAuth flow.",
+            status="error",
+            request=None,
+            response={"error": "missing_pkce_verifier"},
+        )
+        return err_redirect("missing_pkce_verifier")
+
     token_request_body = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": cfg.redirect_uri,
         "client_id": LUCID_CLIENT_ID,
         "client_secret": LUCID_CLIENT_SECRET,
+        "code_verifier": pkce_verifier,
     }
 
     _append_step(
@@ -386,6 +422,7 @@ async def _run_oauth_callback(
                 "redirect_uri": cfg.redirect_uri,
                 "client_id": LUCID_CLIENT_ID,
                 "client_secret": "••••••••••••  (never sent to browser)",
+                "code_verifier": "••••••••••••  (PKCE verifier, never sent to browser)",
             },
         },
         response=None,
@@ -407,7 +444,21 @@ async def _run_oauth_callback(
             request=None,
             response=raw_response or {"error": "token_exchange_failed"},
         )
+        cfg.set_pkce_verifier(None)
         return err_redirect("token_exchange_failed")
+
+    if not isinstance(token_data.get("access_token"), str) or not token_data.get("access_token"):
+        _append_step(
+            cfg.log_list,
+            step=5,
+            label="Token payload missing access_token",
+            detail="Lucid token response did not include a usable access_token.",
+            status="error",
+            request=None,
+            response={"error": "invalid_token_payload"},
+        )
+        cfg.set_pkce_verifier(None)
+        return err_redirect("invalid_token_payload")
 
     # Store the token and log success
     cfg.store_token(token_data)
@@ -419,6 +470,8 @@ async def _run_oauth_callback(
     if "access_token" in display_token_response:
         raw_tok = display_token_response["access_token"]
         display_token_response["access_token"] = raw_tok[:8] + "•••• (stored in server memory only)"
+    if "refresh_token" in display_token_response and display_token_response["refresh_token"]:
+        display_token_response["refresh_token"] = "•••••••••••• (stored in server memory only)"
 
     _append_step(
         cfg.log_list,
@@ -439,6 +492,7 @@ async def _run_oauth_callback(
     # Clear the one-time OAuth state now that the flow is complete
     cfg.set_oauth_state(None)
     cfg.set_oauth_state_created_at(None)
+    cfg.set_pkce_verifier(None)
 
     return RedirectResponse(url=cfg.success_redirect)
 
@@ -535,11 +589,19 @@ async def _exchange_code_for_token(payload: dict) -> tuple[dict | None, dict | N
             "status_code": exc.response.status_code,
             "body": exc.response.text,
         }
-        print(f"[auth] Token exchange failed: {exc.response.status_code} {exc.response.text}")
+        log.warning("OAuth token exchange failed with status=%s", exc.response.status_code)
         return None, raw_info
     except httpx.RequestError as exc:
-        print(f"[auth] Token exchange network error: {exc}")
+        log.warning("OAuth token exchange network error: %s", exc)
         return None, {"error": str(exc)}
+
+
+def _generate_pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(72)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode("utf-8")).digest()
+    ).rstrip(b"=").decode("ascii")
+    return verifier, challenge
 
 
 def _store_rest_token(token_data: dict) -> None:

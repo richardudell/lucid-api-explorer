@@ -30,6 +30,7 @@ rest_token_expires_in: int | None = None  # raw seconds from last token response
 # Set when the flow is initiated; cleared after the callback succeeds.
 rest_oauth_state: str | None = None
 rest_oauth_state_created_at: datetime | None = None  # expiry guard: reject callbacks > 10 min old
+rest_pkce_verifier: str | None = None
 
 
 # ── REST API — OAuth 2.0 Authorization Code Flow (Account Token) ─────────────
@@ -46,6 +47,7 @@ rest_account_token_expires_in: int | None = None
 # CSRF state for the account token flow
 rest_account_oauth_state: str | None = None
 rest_account_oauth_state_created_at: datetime | None = None  # expiry guard: reject callbacks > 10 min old
+rest_account_pkce_verifier: str | None = None
 
 
 # ── SCIM API — Static Bearer Token ───────────────────────────────────────────
@@ -130,7 +132,7 @@ def clear_rest_auth() -> None:
     """Wipe REST user token state (e.g. on explicit logout or token error)."""
     global rest_access_token, rest_refresh_token, rest_token_expires_at
     global rest_token_scopes, rest_token_type, rest_token_expires_in
-    global rest_oauth_state, rest_oauth_state_created_at
+    global rest_oauth_state, rest_oauth_state_created_at, rest_pkce_verifier
     rest_access_token = None
     rest_refresh_token = None
     rest_token_expires_at = None
@@ -139,13 +141,14 @@ def clear_rest_auth() -> None:
     rest_token_expires_in = None
     rest_oauth_state = None
     rest_oauth_state_created_at = None
+    rest_pkce_verifier = None
 
 
 def clear_rest_account_auth() -> None:
     """Wipe REST account token state."""
     global rest_account_access_token, rest_account_refresh_token, rest_account_token_expires_at
     global rest_account_token_scopes, rest_account_token_type, rest_account_token_expires_in
-    global rest_account_oauth_state, rest_account_oauth_state_created_at
+    global rest_account_oauth_state, rest_account_oauth_state_created_at, rest_account_pkce_verifier
     rest_account_access_token = None
     rest_account_refresh_token = None
     rest_account_token_expires_at = None
@@ -154,6 +157,7 @@ def clear_rest_account_auth() -> None:
     rest_account_token_expires_in = None
     rest_account_oauth_state = None
     rest_account_oauth_state_created_at = None
+    rest_account_pkce_verifier = None
 
 
 def clear_mcp_auth() -> None:

@@ -10,11 +10,12 @@ All three delegate exclusively to app/services/ai_client.py.
 No other file in this project calls the Anthropic SDK.
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.errors import error_response, error_response_from_exception, success_response
+from app.security import require_local_request_dep
 from app.services.ai_client import (
     generate_narrative,
     answer_followup,
@@ -22,7 +23,7 @@ from app.services.ai_client import (
     generate_standard_import_json,
 )
 
-router = APIRouter(prefix="/ai", tags=["AI"])
+router = APIRouter(prefix="/ai", tags=["AI"], dependencies=[Depends(require_local_request_dep)])
 
 
 # ── Request models ─────────────────────────────────────────────────────────────

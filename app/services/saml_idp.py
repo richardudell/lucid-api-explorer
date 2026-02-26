@@ -96,7 +96,15 @@ def load_config() -> dict[str, Any]:
 
 def save_config(config: dict[str, Any]) -> None:
     """Persist config to saml_config.json (pretty-printed for readability)."""
-    _CONFIG_PATH.write_text(json.dumps(config, indent=2))
+    payload = json.dumps(config, indent=2)
+    fd = os.open(_CONFIG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+    try:
+        os.chmod(_CONFIG_PATH, 0o600)
+    except OSError:
+        # Best effort on platforms/filesystems that ignore chmod semantics.
+        pass
     log.info("SAML config saved to %s", _CONFIG_PATH)
 
 
@@ -610,6 +618,10 @@ def _fault_description(fault: str | None) -> str:
 
 def _check_cert_on_startup() -> None:
     if _CONFIG_PATH.exists():
+        try:
+            os.chmod(_CONFIG_PATH, 0o600)
+        except OSError:
+            pass
         cfg = load_config()
         if not cfg.get("cert_pem"):
             log.warning(

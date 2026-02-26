@@ -39,15 +39,17 @@ import base64
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Form, Query, Request
+from fastapi import APIRouter, Form, Query, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from app.services import saml_idp
 from app.services.ai_client import generate_saml_narrative
+from app.config import is_allowed_acs_url
+from app.security import require_local_request_dep
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(tags=["saml"])
+router = APIRouter(tags=["saml"], dependencies=[Depends(require_local_request_dep)])
 
 # ── In-memory store for last SAML execution (for Claude narrative) ──────────────
 _last_saml_execution: dict[str, Any] = {}
@@ -157,6 +159,15 @@ async def _handle_sso(
             ),
             status_code=400,
         )
+    valid_acs, acs_error = is_allowed_acs_url(acs_url)
+    if not valid_acs:
+        return HTMLResponse(
+            content=_error_page(
+                "ACS URL blocked by policy",
+                acs_error,
+            ),
+            status_code=400,
+        )
 
     # Build the full SAML response
     saml_response_b64, pretty_xml, step_data = saml_idp.build_full_saml_response(
@@ -225,6 +236,13 @@ async def update_saml_config(request: Request) -> JSONResponse:
         "validity_minutes",
     }
     updates = {k: v for k, v in body.items() if k in allowed}
+    if "acs_url" in updates and updates["acs_url"]:
+        valid_acs, acs_error = is_allowed_acs_url(str(updates["acs_url"]))
+        if not valid_acs:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Invalid ACS URL: {acs_error}"},
+            )
     updated = saml_idp.update_config(updates)
     safe = {k: v for k, v in updated.items() if k != "key_pem"}
     return JSONResponse(safe)

@@ -10,11 +10,12 @@ import uuid
 import sys
 import os
 import warnings
+import ipaddress
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.config import PORT, DEBUG
+from app.config import PORT, DEBUG, HOST, ALLOW_REMOTE
 from app.routes import auth, rest_api, scim_api, ai, mcp_api, saml
 
 app = FastAPI(title="Lucid API Explorer", version="1.0.0")
@@ -61,6 +62,27 @@ async def correlation_id_middleware(request, call_next):
     response.headers["X-Correlation-Id"] = cid
     return response
 
+
+@app.middleware("http")
+async def security_headers_middleware(request, call_next):
+    response = await call_next(request)
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self'; "
+        "form-action 'self' https://lucid.app https://*.lucid.app; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'"
+    )
+    response.headers.setdefault("Content-Security-Policy", csp)
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
+
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router)
 app.include_router(rest_api.router)
@@ -83,13 +105,24 @@ async def root() -> FileResponse:
 
 if __name__ == "__main__":
     _assert_supported_python()
+    bind_host = HOST
+    is_loopback = False
+    try:
+        is_loopback = ipaddress.ip_address(bind_host).is_loopback
+    except ValueError:
+        is_loopback = bind_host in {"localhost"}
+    if not is_loopback and not ALLOW_REMOTE:
+        raise RuntimeError(
+            "Refusing non-local bind without ALLOW_REMOTE=true. "
+            "Set HOST=127.0.0.1 for default local-only execution."
+        )
     # NOTE: reload=False is intentional — uvicorn's reloader spawns a child
     # worker process, and any restart wipes in-memory OAuth state (the CSRF
     # state token) mid-flow, causing state_mismatch errors on the callback.
     # During development, stop and restart manually after code changes.
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
+        host=bind_host,
         port=PORT,
         reload=False,
         log_level="debug" if DEBUG else "info",
