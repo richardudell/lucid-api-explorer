@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lucid API Explorer</title>
-  <link rel="stylesheet" href="/static/style.css?v=oauth-triangle-3" />
+  <link rel="stylesheet" href="/static/style.css?v=lucid-clean-shell-1" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 </head>
 <body>
 
@@ -79,26 +79,30 @@
       </div>
     </div>
     <div id="topbar-right">
-      <button id="scope-summary-trigger" class="scope-summary-trigger" title="View authorized scopes" aria-expanded="false" aria-controls="scope-summary-panel">
-        <span class="scope-summary-label">Scopes</span>
-        <span id="scope-summary-user" class="scope-summary-pill scope-user">U 0</span>
-        <span id="scope-summary-account" class="scope-summary-pill scope-account">A 0</span>
-        <span class="token-panel-chevron">▾</span>
-      </button>
-      <div id="scope-summary-panel" class="hidden">
-        <div class="scope-summary-header">Authorized Scopes</div>
-        <div class="scope-summary-section">
-          <div class="scope-summary-section-title">User Token</div>
-          <div id="scope-summary-user-list" class="scope-summary-list"></div>
-        </div>
-        <div class="scope-summary-section">
-          <div class="scope-summary-section-title">Account Token</div>
-          <div id="scope-summary-account-list" class="scope-summary-list"></div>
+      <div id="topbar-scope-wrap">
+        <button id="scope-summary-trigger" class="scope-summary-trigger" title="View authorized scopes" aria-expanded="false" aria-controls="scope-summary-panel">
+          <span class="scope-summary-label">Scopes</span>
+          <span id="scope-summary-user" class="scope-summary-pill scope-user">U 0</span>
+          <span id="scope-summary-account" class="scope-summary-pill scope-account">A 0</span>
+          <span class="token-panel-chevron">▾</span>
+        </button>
+        <div id="scope-summary-panel" class="hidden">
+          <div class="scope-summary-header">Authorized Scopes</div>
+          <div class="scope-summary-section">
+            <div class="scope-summary-section-title">User Token</div>
+            <div id="scope-summary-user-list" class="scope-summary-list"></div>
+          </div>
+          <div class="scope-summary-section">
+            <div class="scope-summary-section-title">Account Token</div>
+            <div id="scope-summary-account-list" class="scope-summary-list"></div>
+          </div>
         </div>
       </div>
-      <button id="btn-view-flows" class="btn-ghost hidden" title="View token auth flows">View Auth Flows</button>
-      <button id="btn-reauth-account" class="btn-ghost" title="Authenticate account token (for createUser, listUsers)">Auth Account Token</button>
-      <button id="btn-reauth" class="btn-ghost" title="Authenticate REST API user token">Auth User Token</button>
+      <div id="topbar-auth-actions">
+        <button id="btn-view-flows" class="btn-ghost hidden" title="View token auth flows">View Auth Flows</button>
+        <button id="btn-reauth-account" class="btn-ghost" title="Authenticate account token (for createUser, listUsers)">Auth Account Token</button>
+        <button id="btn-reauth" class="btn-ghost" title="Authenticate REST API user token">Auth User Token</button>
+      </div>
     </div>
   </header>
 
@@ -668,6 +672,19 @@
 
       <!-- State A: Surface Cards (default view) -->
       <div id="workspace-cards" class="workspace-state active">
+        <div class="workspace-hero">
+          <span class="workspace-kicker">Lucid API Explorer</span>
+          <h1 class="workspace-title">Jump into something new</h1>
+          <p class="workspace-subtitle">Pick a surface, configure parameters, and run requests with built-in auth visibility and guided context.</p>
+          <div id="auth-onboarding-card" class="auth-onboarding-card">
+            <div class="auth-onboarding-title">Step 1: Authenticate in the top bar</div>
+            <p id="auth-onboarding-copy" class="auth-onboarding-copy">Most endpoints start with a User token. Use Account token for account-admin endpoints like <code>createUser</code> and <code>listUsers</code>.</p>
+            <div class="auth-onboarding-actions">
+              <button id="btn-auth-onboard-user" class="btn-primary">Authenticate User Token</button>
+              <button id="btn-auth-onboard-account" class="btn-ghost">Authenticate Account Token</button>
+            </div>
+          </div>
+        </div>
         <div class="cards-grid">
 
           <div class="surface-card" data-surface="rest">
@@ -732,6 +749,11 @@
         <div id="breadcrumb">
           <button id="btn-back" class="btn-ghost">← Back</button>
           <span id="breadcrumb-path"></span>
+        </div>
+
+        <div id="auth-context-banner" class="auth-context-banner hidden">
+          <div id="auth-context-text"></div>
+          <button id="btn-auth-context" class="btn-primary">Authenticate now</button>
         </div>
 
         <!-- Endpoint info card -->

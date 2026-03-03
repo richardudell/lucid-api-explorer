@@ -608,6 +608,7 @@ const siSessionEvents = [];
 let currentEndpointKey = null;
 let lastExecutionContext = null; // stored for narrative follow-up calls
 let _authPollInterval = null;   // interval ID for polling during OAuth flow
+let latestAuthStatus = null;
 
 // ── DOM references ─────────────────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -630,6 +631,12 @@ const wsCards      = $('#workspace-cards');
 const wsEndpoint   = $('#workspace-endpoint');
 const wsMcp        = $('#workspace-mcp');
 const wsSaml       = $('#workspace-saml');
+const authOnboardingCopy = $('#auth-onboarding-copy');
+const btnAuthOnboardUser = $('#btn-auth-onboard-user');
+const btnAuthOnboardAccount = $('#btn-auth-onboard-account');
+const authContextBanner = $('#auth-context-banner');
+const authContextText = $('#auth-context-text');
+const btnAuthContext = $('#btn-auth-context');
 
 const breadcrumbPath  = $('#breadcrumb-path');
 const endpointMethod  = $('#endpoint-method-badge');
@@ -690,6 +697,7 @@ async function pollAuthStatus() {
 }
 
 function updateAuthUI(status) {
+  latestAuthStatus = status;
   const restOk        = status.rest.authenticated;
   const restAccountOk = status.rest_account && status.rest_account.authenticated;
   const scimOk        = status.scim.authenticated;
@@ -721,6 +729,89 @@ function updateAuthUI(status) {
   if (restOk) simUnlock();
 
   renderScopeSummary(status);
+  renderAuthGuidance();
+}
+
+const ACCOUNT_TOKEN_ENDPOINTS = new Set(['listUsers', 'createUser', 'searchAccountDocuments']);
+
+function getAuthRecommendation() {
+  if (wsEndpoint && wsEndpoint.classList.contains('active') && currentEndpointKey) {
+    const ep = ENDPOINTS[currentEndpointKey];
+    if (ep && ep.surface === 'rest') {
+      return ACCOUNT_TOKEN_ENDPOINTS.has(currentEndpointKey) ? 'account' : 'user';
+    }
+  }
+  return 'user';
+}
+
+function runRecommendedAuthFlow(kind) {
+  if (kind === 'account') {
+    startAuthFlow('account');
+  } else {
+    startAuthFlow('user');
+  }
+}
+
+function renderAuthGuidance() {
+  const status = latestAuthStatus || {};
+  const userOk = !!(status.rest && status.rest.authenticated);
+  const accountOk = !!(status.rest_account && status.rest_account.authenticated);
+  const recommended = getAuthRecommendation();
+  const recommendedReady = recommended === 'account' ? accountOk : userOk;
+  const onRestEndpoint = !!(wsEndpoint && wsEndpoint.classList.contains('active') && currentEndpointKey && ENDPOINTS[currentEndpointKey]?.surface === 'rest');
+  const highlightUser = onRestEndpoint ? (!recommendedReady && recommended === 'user') : !userOk;
+  const highlightAccount = onRestEndpoint ? (!recommendedReady && recommended === 'account') : !accountOk;
+
+  if (btnReauth) {
+    btnReauth.classList.toggle('auth-attention', highlightUser);
+    btnReauth.title = highlightUser
+      ? 'Recommended next step: authenticate User token'
+      : 'Authenticate REST API user token';
+  }
+  if (btnReauthAccount) {
+    btnReauthAccount.classList.toggle('auth-attention', highlightAccount);
+    btnReauthAccount.title = highlightAccount
+      ? 'Recommended next step: authenticate Account token'
+      : 'Authenticate account token (for createUser, listUsers)';
+  }
+
+  if (authOnboardingCopy) {
+    if (!userOk && !accountOk) {
+      authOnboardingCopy.textContent = 'Start by authenticating a User token in the top bar. For admin endpoints like createUser and listUsers, authenticate an Account token.';
+    } else if (userOk && !accountOk) {
+      authOnboardingCopy.textContent = 'User token is ready. If you want to test account-admin endpoints (createUser, listUsers, searchAccountDocuments), authenticate an Account token next.';
+    } else if (!userOk && accountOk) {
+      authOnboardingCopy.textContent = 'Account token is ready. For most document/folder/user profile endpoints, authenticate a User token as well.';
+    } else {
+      authOnboardingCopy.textContent = 'Both User and Account tokens are authenticated. Pick an endpoint and execute requests directly.';
+    }
+  }
+
+  if (!authContextBanner || !authContextText || !btnAuthContext) return;
+  if (!currentEndpointKey) {
+    authContextBanner.classList.add('hidden');
+    return;
+  }
+
+  const ep = ENDPOINTS[currentEndpointKey];
+  if (!ep || ep.surface !== 'rest') {
+    authContextBanner.classList.add('hidden');
+    return;
+  }
+
+  authContextBanner.classList.remove('hidden');
+  authContextBanner.classList.toggle('auth-ready', recommendedReady);
+  if (recommended === 'account') {
+    authContextText.textContent = recommendedReady
+      ? 'Account token is authenticated for this endpoint. You can execute now.'
+      : 'This endpoint is account-admin scoped. Authenticate an Account token in the top bar before executing.';
+    btnAuthContext.textContent = recommendedReady ? 'Re-auth Account Token' : 'Authenticate Account Token';
+  } else {
+    authContextText.textContent = recommendedReady
+      ? 'User token is authenticated for this endpoint. You can execute now.'
+      : 'Authenticate a User token in the top bar before executing this endpoint.';
+    btnAuthContext.textContent = recommendedReady ? 'Re-auth User Token' : 'Authenticate User Token';
+  }
 }
 
 function renderScopeSummary(status) {
@@ -2212,6 +2303,8 @@ function showWorkspace(state) {
   if (state === 'endpoint') wsEndpoint.classList.add('active');
   if (state === 'mcp')      wsMcp.classList.add('active');
   if (state === 'saml' && wsSaml) wsSaml.classList.add('active');
+
+  renderAuthGuidance();
 }
 
 function loadEndpoint(key) {
@@ -2239,6 +2332,7 @@ function loadEndpoint(key) {
   responseViewer.classList.add('hidden');
 
   showWorkspace('endpoint');
+  renderAuthGuidance();
 }
 
 // ── Parameter editor ────────────────────────────────────────────────────────────
@@ -3757,8 +3851,18 @@ function archAnimate(surface, method, urlHint, statusCode) {
 function init() {
   initSidebar();
   initArch();
+  if (btnAuthOnboardUser) {
+    btnAuthOnboardUser.addEventListener('click', () => startAuthFlow('user'));
+  }
+  if (btnAuthOnboardAccount) {
+    btnAuthOnboardAccount.addEventListener('click', () => startAuthFlow('account'));
+  }
+  if (btnAuthContext) {
+    btnAuthContext.addEventListener('click', () => runRecommendedAuthFlow(getAuthRecommendation()));
+  }
   tokenPanelTrigger.addEventListener('click', toggleTokenPanel);
   scopeSummaryTrigger.addEventListener('click', toggleScopeSummary);
+  renderAuthGuidance();
   pollAuthStatus();
   setInterval(pollAuthStatus, 15000); // Poll every 15s to keep status fresh
   // handleOAuthRedirect last — it may open the modal which reads DOM state
