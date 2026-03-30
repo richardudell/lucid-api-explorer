@@ -184,6 +184,269 @@ ENDPOINT_REGISTRY: dict[str, dict] = {
         "scope": "folder:readonly",
     },
 
+    # ── Collaboration — Document (user) ──────────────────────────────────────
+    # Docs: https://developer.lucid.co/reference/collaboration
+
+    "listDocumentUserCollaborators": {
+        "method": "GET",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/collaborators/users"),
+        "token": "user",
+        "scope": "lucidchart.document.content:readonly",
+    },
+    "getDocumentUserCollaborator": {
+        "method": "GET",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/collaborators/users/{p['userId']}"),
+        "token": "user",
+        "scope": "lucidchart.document.content:readonly",
+    },
+    "putDocumentUserCollaborator": {
+        "method": "PUT",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/collaborators/users/{p['userId']}"),
+        "has_body": True,
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+    "deleteDocumentUserCollaborator": {
+        "method": "DELETE",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/collaborators/users/{p['userId']}"),
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+
+    # ── Collaboration — Document (team) ───────────────────────────────────────
+
+    "getDocumentTeamCollaborator": {
+        "method": "GET",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/collaborators/teams/{p['teamId']}"),
+        "token": "user",
+        "scope": "lucidchart.document.content:readonly",
+    },
+    "putDocumentTeamCollaborator": {
+        "method": "PUT",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/collaborators/teams/{p['teamId']}"),
+        "has_body": True,
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+    "deleteDocumentTeamCollaborator": {
+        "method": "DELETE",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/collaborators/teams/{p['teamId']}"),
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+
+    # ── Collaboration — Folder (user) ─────────────────────────────────────────
+
+    "listFolderUserCollaborators": {
+        "method": "GET",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/collaborators/users"),
+        "token": "user",
+        "scope": "folder:readonly",
+    },
+    "putFolderUserCollaborator": {
+        "method": "PUT",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/collaborators/users/{p['userId']}"),
+        "has_body": True,
+        "token": "user",
+        "scope": "folder",
+    },
+    "deleteFolderUserCollaborator": {
+        "method": "DELETE",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/collaborators/users/{p['userId']}"),
+        "token": "user",
+        "scope": "folder",
+    },
+
+    # ── Collaboration — Folder (group / team) ─────────────────────────────────
+
+    "listFolderGroupCollaborators": {
+        "method": "GET",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/collaborators/groups"),
+        "token": "user",
+        "scope": "folder:readonly",
+    },
+    "putFolderGroupCollaborator": {
+        "method": "PUT",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/collaborators/groups/{p['groupId']}"),
+        "has_body": True,
+        "token": "user",
+        "scope": "folder",
+    },
+    "deleteFolderGroupCollaborator": {
+        "method": "DELETE",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/collaborators/groups/{p['groupId']}"),
+        "token": "user",
+        "scope": "folder",
+    },
+
+    # ── Sharing — Document share links ────────────────────────────────────────
+    # Docs: https://developer.lucid.co/reference/sharing
+
+    "getDocumentShareLink": {
+        "method": "GET",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/sharelink"),
+        "token": "user",
+        "scope": "lucidchart.document.content:readonly",
+    },
+    "createDocumentShareLink": {
+        "method": "POST",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/sharelink"),
+        "has_body": True,
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+    "updateDocumentShareLink": {
+        "method": "PATCH",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/sharelink"),
+        "has_body": True,
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+    "deleteDocumentShareLink": {
+        "method": "DELETE",
+        "url": lambda p: _url(f"/documents/{p['documentId']}/sharelink"),
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+
+    # ── Sharing — Folder share links ──────────────────────────────────────────
+
+    "getFolderShareLink": {
+        "method": "GET",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/sharelink"),
+        "token": "user",
+        "scope": "folder:readonly",
+    },
+    "createFolderShareLink": {
+        "method": "POST",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/sharelink"),
+        "has_body": True,
+        "token": "user",
+        "scope": "folder",
+    },
+    "updateFolderShareLink": {
+        "method": "PATCH",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/sharelink"),
+        "has_body": True,
+        "token": "user",
+        "scope": "folder",
+    },
+    "deleteFolderShareLink": {
+        "method": "DELETE",
+        "url": lambda p: _url(f"/folders/{p['folderId']}/sharelink"),
+        "token": "user",
+        "scope": "folder",
+    },
+
+    # ── Sharing — Accept share link ───────────────────────────────────────────
+
+    "acceptShareLink": {
+        "method": "POST",
+        "url": lambda p: _url("/sharelinks/accept"),
+        "has_body": True,
+        "token": "user",
+        "scope": "lucidchart.document.content",
+    },
+
+    # ── Teams ─────────────────────────────────────────────────────────────────
+    # Docs: https://developer.lucid.co/reference/teams
+
+    "listTeams": {
+        "method": "GET",
+        "url": lambda p: _url("/teams"),
+        "token": "account",
+        "scope": "account.team:readonly",
+    },
+    "createTeam": {
+        "method": "POST",
+        "url": lambda p: _url("/teams"),
+        "has_body": True,
+        "token": "account",
+        "scope": "account.team",
+    },
+    "getTeam": {
+        "method": "GET",
+        "url": lambda p: _url(f"/teams/{p['teamId']}"),
+        "token": "account",
+        "scope": "account.team:readonly",
+    },
+    "updateTeam": {
+        "method": "PATCH",
+        "url": lambda p: _url(f"/teams/{p['teamId']}"),
+        "has_body": True,
+        "token": "account",
+        "scope": "account.team",
+    },
+    "archiveTeam": {
+        "method": "POST",
+        "url": lambda p: _url(f"/teams/{p['teamId']}/archive"),
+        "token": "account",
+        "scope": "account.team",
+    },
+    "restoreTeam": {
+        "method": "POST",
+        "url": lambda p: _url(f"/teams/{p['teamId']}/restore"),
+        "token": "account",
+        "scope": "account.team",
+    },
+    "listUsersOnTeam": {
+        "method": "GET",
+        "url": lambda p: _url(f"/teams/{p['teamId']}/users"),
+        "token": "account",
+        "scope": "account.team:readonly",
+    },
+    "addUsersToTeam": {
+        "method": "POST",
+        "url": lambda p: _url(f"/teams/{p['teamId']}/users"),
+        "has_body": True,
+        "token": "account",
+        "scope": "account.team",
+    },
+    "removeUsersFromTeam": {
+        "method": "POST",
+        "url": lambda p: _url(f"/teams/{p['teamId']}/users/remove"),
+        "has_body": True,
+        "token": "account",
+        "scope": "account.team",
+    },
+
+    # ── Audit Logs ────────────────────────────────────────────────────────────
+    # Docs: https://developer.lucid.co/reference/audit-logs
+
+    "getAuditLogs": {
+        "method": "GET",
+        "url": lambda p: _url("/auditlog"),
+        "token": "account",
+        "scope": "account.auditlog:readonly",
+    },
+    "queryAuditLogs": {
+        "method": "POST",
+        "url": lambda p: _url("/auditlog/query"),
+        "has_body": True,
+        "token": "account",
+        "scope": "account.auditlog:readonly",
+    },
+
+    # ── Folders — additional utility ──────────────────────────────────────────
+
+    "searchFolders": {
+        "method": "POST",
+        "url": lambda p: _url("/folders/search"),
+        "has_body": True,
+        "token": "user",
+        "scope": "folder:readonly",
+    },
+
+    # ── Users — content transfer ──────────────────────────────────────────────
+
+    "transferUserContent": {
+        "method": "POST",
+        "url": lambda p: _url(f"/users/{p['userId']}/transfercontent"),
+        "has_body": True,
+        "token": "account",
+        "scope": "account.user",
+    },
+
     # ── OAuth Token Management ────────────────────────────────────────────────
     # These endpoints authenticate with client_id + client_secret (no Bearer token).
     # They call Lucid's token endpoint directly, not the REST API user endpoints.

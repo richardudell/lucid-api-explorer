@@ -417,6 +417,578 @@ const ENDPOINTS = {
     ],
   },
 
+  // ── Collaboration — Document user collaborators ──────────────────────────
+  listDocumentUserCollaborators: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'listDocumentUserCollaborators',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/collaborators/users',
+    description: 'List all user collaborators on a document and their permission roles.',
+    scope: 'lucidchart.document.content:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/listdocumentusercollaborators',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+    ],
+  },
+  getDocumentUserCollaborator: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getDocumentUserCollaborator',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/collaborators/users/{userId}',
+    description: 'Get the collaboration role for a specific user on a document.',
+    scope: 'lucidchart.document.content:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/getdocumentusercollaborators',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+      { name: 'userId', label: 'User ID', type: 'string', required: true, hint: 'The Lucid user ID' },
+    ],
+  },
+  putDocumentUserCollaborator: {
+    surface: 'rest',
+    method: 'PUT',
+    label: 'putDocumentUserCollaborator',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/collaborators/users/{userId}',
+    description: 'Create or update the collaboration role for a user on a document.',
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/putdocumentusercollaborators',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+      { name: 'userId', label: 'User ID', type: 'string', required: true, hint: 'The Lucid user ID' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Collaboration role object',
+        placeholder: '{\n  "role": "edit"\n}',
+      },
+    ],
+  },
+  deleteDocumentUserCollaborator: {
+    surface: 'rest',
+    method: 'DELETE',
+    label: 'deleteDocumentUserCollaborator',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/collaborators/users/{userId}',
+    description: 'Remove a user collaborator from a document.',
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/deletedocumentusercollaborators',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+      { name: 'userId', label: 'User ID', type: 'string', required: true, hint: 'The Lucid user ID to remove' },
+    ],
+  },
+
+  // ── Collaboration — Document team collaborators ───────────────────────────
+  getDocumentTeamCollaborator: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getDocumentTeamCollaborator',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/collaborators/teams/{teamId}',
+    description: 'Get the collaboration role for a team on a document.',
+    scope: 'lucidchart.document.content:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/getdocumentteamcollaborator',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID' },
+    ],
+  },
+  putDocumentTeamCollaborator: {
+    surface: 'rest',
+    method: 'PUT',
+    label: 'putDocumentTeamCollaborator',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/collaborators/teams/{teamId}',
+    description: 'Create or update the collaboration role for a team on a document.',
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/putdocumentteamcollaborator',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Collaboration role object',
+        placeholder: '{\n  "role": "view"\n}',
+      },
+    ],
+  },
+  deleteDocumentTeamCollaborator: {
+    surface: 'rest',
+    method: 'DELETE',
+    label: 'deleteDocumentTeamCollaborator',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/collaborators/teams/{teamId}',
+    description: 'Remove a team collaborator from a document.',
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/deletedocumentteamcollaborator',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID to remove' },
+    ],
+  },
+
+  // ── Collaboration — Folder user collaborators ────────────────────────────
+  listFolderUserCollaborators: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'listFolderUserCollaborators',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/collaborators/users',
+    description: 'List all user collaborators on a folder and their permission roles.',
+    scope: 'folder:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/listfolderusercollaborators',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+    ],
+  },
+  putFolderUserCollaborator: {
+    surface: 'rest',
+    method: 'PUT',
+    label: 'putFolderUserCollaborator',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/collaborators/users/{userId}',
+    description: 'Create or update the collaboration role for a user on a folder.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/putfolderusercollaborator',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+      { name: 'userId', label: 'User ID', type: 'string', required: true, hint: 'The Lucid user ID' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Collaboration role object',
+        placeholder: '{\n  "role": "edit"\n}',
+      },
+    ],
+  },
+  deleteFolderUserCollaborator: {
+    surface: 'rest',
+    method: 'DELETE',
+    label: 'deleteFolderUserCollaborator',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/collaborators/users/{userId}',
+    description: 'Remove a user collaborator from a folder.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/deletefolderusercollaborator',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+      { name: 'userId', label: 'User ID', type: 'string', required: true, hint: 'The Lucid user ID to remove' },
+    ],
+  },
+
+  // ── Collaboration — Folder group collaborators ───────────────────────────
+  listFolderGroupCollaborators: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'listFolderGroupCollaborators',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/collaborators/groups',
+    description: 'List all group/team collaborators on a folder and their permission roles.',
+    scope: 'folder:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/listfoldergroupcollaborators',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+    ],
+  },
+  putFolderGroupCollaborator: {
+    surface: 'rest',
+    method: 'PUT',
+    label: 'putFolderGroupCollaborator',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/collaborators/groups/{groupId}',
+    description: 'Create or update the collaboration role for a group on a folder.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/updatefoldergroupcollaborator',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+      { name: 'groupId', label: 'Group ID', type: 'string', required: true, hint: 'The Lucid group/team ID' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Collaboration role object',
+        placeholder: '{\n  "role": "view"\n}',
+      },
+    ],
+  },
+  deleteFolderGroupCollaborator: {
+    surface: 'rest',
+    method: 'DELETE',
+    label: 'deleteFolderGroupCollaborator',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/collaborators/groups/{groupId}',
+    description: 'Remove a group collaborator from a folder.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/deletefoldergroupcollaborator',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+      { name: 'groupId', label: 'Group ID', type: 'string', required: true, hint: 'The Lucid group/team ID to remove' },
+    ],
+  },
+
+  // ── Sharing — Document share links ───────────────────────────────────────
+  getDocumentShareLink: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getDocumentShareLink',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/sharelink',
+    description: 'Get the current share link for a document, including its security settings.',
+    scope: 'lucidchart.document.content:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/getdocumentsharelink',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+    ],
+  },
+  createDocumentShareLink: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'createDocumentShareLink',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/sharelink',
+    description: 'Create a share link for a document. Specify access level in the body.',
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/createdocumentsharelink',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Share link settings — access level and optional password',
+        placeholder: '{\n  "accessLevel": "view"\n}',
+      },
+    ],
+  },
+  updateDocumentShareLink: {
+    surface: 'rest',
+    method: 'PATCH',
+    label: 'updateDocumentShareLink',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/sharelink',
+    description: 'Update the access level or password of an existing document share link.',
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/updatedocumentsharelink',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Fields to update: accessLevel and/or editLinkEnabled',
+        placeholder: '{\n  "accessLevel": "edit"\n}',
+      },
+    ],
+  },
+  deleteDocumentShareLink: {
+    surface: 'rest',
+    method: 'DELETE',
+    label: 'deleteDocumentShareLink',
+    urlTemplate: 'https://api.lucid.co/documents/{documentId}/sharelink',
+    description: 'Delete the share link for a document, revoking public access.',
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/deletedocumentsharelink',
+    params: [
+      { name: 'documentId', label: 'Document ID', type: 'string', required: true, hint: 'The Lucid document identifier' },
+    ],
+  },
+
+  // ── Sharing — Folder share links ─────────────────────────────────────────
+  getFolderShareLink: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getFolderShareLink',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/sharelink',
+    description: 'Get the current share link for a folder, including its access settings.',
+    scope: 'folder:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/getfoldersharelink',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+    ],
+  },
+  createFolderShareLink: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'createFolderShareLink',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/sharelink',
+    description: 'Create a share link for a folder.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/createfoldersharelink',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Share link settings',
+        placeholder: '{\n  "accessLevel": "view"\n}',
+      },
+    ],
+  },
+  updateFolderShareLink: {
+    surface: 'rest',
+    method: 'PATCH',
+    label: 'updateFolderShareLink',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/sharelink',
+    description: 'Update the access settings of an existing folder share link.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/updatefoldersharelink',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Fields to update',
+        placeholder: '{\n  "accessLevel": "edit"\n}',
+      },
+    ],
+  },
+  deleteFolderShareLink: {
+    surface: 'rest',
+    method: 'DELETE',
+    label: 'deleteFolderShareLink',
+    urlTemplate: 'https://api.lucid.co/folders/{folderId}/sharelink',
+    description: 'Delete the share link for a folder, revoking public access.',
+    scope: 'folder',
+    docsUrl: 'https://developer.lucid.co/reference/deletefoldersharelink',
+    params: [
+      { name: 'folderId', label: 'Folder ID', type: 'string', required: true, hint: 'The numeric folder identifier' },
+    ],
+  },
+
+  // ── Sharing — Accept share link ──────────────────────────────────────────
+  acceptShareLink: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'acceptShareLink',
+    urlTemplate: 'https://api.lucid.co/sharelinks/accept',
+    description: 'Accept a Lucid share link, adding the document or folder to your account.',
+    scope: 'lucidchart.document.content',
+    docsUrl: 'https://developer.lucid.co/reference/acceptsharelink',
+    params: [
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Share link token to accept',
+        placeholder: '{\n  "shareToken": "abc123xyz"\n}',
+      },
+    ],
+  },
+
+  // ── Teams ────────────────────────────────────────────────────────────────
+  listTeams: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'listTeams',
+    urlTemplate: 'https://api.lucid.co/teams',
+    description: 'List all teams in the account. Returns team IDs, names, and membership counts.',
+    scope: 'account.team:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/listteams',
+    params: [],
+  },
+  createTeam: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'createTeam',
+    urlTemplate: 'https://api.lucid.co/teams',
+    description: 'Create a new team in the account.',
+    scope: 'account.team',
+    docsUrl: 'https://developer.lucid.co/reference/createteam',
+    params: [
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Team object — must include name',
+        placeholder: '{\n  "name": "Engineering"\n}',
+      },
+    ],
+  },
+  getTeam: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getTeam',
+    urlTemplate: 'https://api.lucid.co/teams/{teamId}',
+    description: 'Get metadata for a team by ID — name, member count, and status.',
+    scope: 'account.team:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/getteam',
+    params: [
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID' },
+    ],
+  },
+  updateTeam: {
+    surface: 'rest',
+    method: 'PATCH',
+    label: 'updateTeam',
+    urlTemplate: 'https://api.lucid.co/teams/{teamId}',
+    description: 'Update a team — rename it or change its settings.',
+    scope: 'account.team',
+    docsUrl: 'https://developer.lucid.co/reference/updateteam',
+    params: [
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Fields to update',
+        placeholder: '{\n  "name": "Renamed Team"\n}',
+      },
+    ],
+  },
+  archiveTeam: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'archiveTeam',
+    urlTemplate: 'https://api.lucid.co/teams/{teamId}/archive',
+    description: 'Archive a team. Archived teams retain their members and documents but cannot be used for new sharing.',
+    scope: 'account.team',
+    docsUrl: 'https://developer.lucid.co/reference/archiveteam',
+    params: [
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID' },
+    ],
+  },
+  restoreTeam: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'restoreTeam',
+    urlTemplate: 'https://api.lucid.co/teams/{teamId}/restore',
+    description: 'Restore an archived team to active status.',
+    scope: 'account.team',
+    docsUrl: 'https://developer.lucid.co/reference/restoreteam',
+    params: [
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID' },
+    ],
+  },
+  listUsersOnTeam: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'listUsersOnTeam',
+    urlTemplate: 'https://api.lucid.co/teams/{teamId}/users',
+    description: 'List all users who are members of a team.',
+    scope: 'account.team:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/listusersonteam',
+    params: [
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID' },
+    ],
+  },
+  addUsersToTeam: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'addUsersToTeam',
+    urlTemplate: 'https://api.lucid.co/teams/{teamId}/users',
+    description: 'Add one or more users to a team by user ID.',
+    scope: 'account.team',
+    docsUrl: 'https://developer.lucid.co/reference/adduserstoteam',
+    params: [
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Array of user IDs to add',
+        placeholder: '{\n  "userIds": [12345678, 87654321]\n}',
+      },
+    ],
+  },
+  removeUsersFromTeam: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'removeUsersFromTeam',
+    urlTemplate: 'https://api.lucid.co/teams/{teamId}/users/remove',
+    description: 'Remove one or more users from a team.',
+    scope: 'account.team',
+    docsUrl: 'https://developer.lucid.co/reference/removeusersfromteam',
+    params: [
+      { name: 'teamId', label: 'Team ID', type: 'string', required: true, hint: 'The Lucid team ID' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Array of user IDs to remove',
+        placeholder: '{\n  "userIds": [12345678]\n}',
+      },
+    ],
+  },
+
+  // ── Audit Logs ───────────────────────────────────────────────────────────
+  getAuditLogs: {
+    surface: 'rest',
+    method: 'GET',
+    label: 'getAuditLogs',
+    urlTemplate: 'https://api.lucid.co/auditlog',
+    description: 'Retrieve recent audit log events for the account. Returns login, content, team, and admin events.',
+    scope: 'account.auditlog:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/getauditlogs',
+    params: [],
+  },
+  queryAuditLogs: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'queryAuditLogs',
+    urlTemplate: 'https://api.lucid.co/auditlog/query',
+    description: 'Query audit logs with filters — by event type, date range, actor, or target.',
+    scope: 'account.auditlog:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/queryauditlogs',
+    params: [
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: false,
+        hint: 'Filter criteria. Leave blank to return recent events.',
+        placeholder: '{\n  "eventTypes": ["login"],\n  "startDate": "2024-01-01T00:00:00Z"\n}',
+      },
+    ],
+  },
+
+  // ── Folders — search ─────────────────────────────────────────────────────
+  searchFolders: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'searchFolders',
+    urlTemplate: 'https://api.lucid.co/folders/search',
+    description: 'Search for folders by name or other criteria. Returns matching folder metadata.',
+    scope: 'folder:readonly',
+    docsUrl: 'https://developer.lucid.co/reference/searchfolders',
+    params: [
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: false,
+        hint: 'Search criteria. Leave blank to return all accessible folders.',
+        placeholder: '{\n  "keywords": "my project"\n}',
+      },
+    ],
+  },
+
+  // ── Users — transfer content ──────────────────────────────────────────────
+  transferUserContent: {
+    surface: 'rest',
+    method: 'POST',
+    label: 'transferUserContent',
+    urlTemplate: 'https://api.lucid.co/users/{userId}/transfercontent',
+    description: 'Transfer all documents and folders owned by one user to another. Used when offboarding users.',
+    scope: 'account.user',
+    docsUrl: 'https://developer.lucid.co/reference/transferusercontent',
+    params: [
+      { name: 'userId', label: 'Source User ID', type: 'string', required: true, hint: 'The user whose content will be transferred' },
+      {
+        name: 'body',
+        label: 'Request Body (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Target user ID to receive the content',
+        placeholder: '{\n  "targetUserId": 87654321\n}',
+      },
+    ],
+  },
+
   // SCIM API
   scimGetUser: {
     surface: 'scim',
@@ -498,6 +1070,126 @@ const ENDPOINTS = {
         placeholder: '{\n  "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],\n  "Operations": [{ "op": "replace", "path": "active", "value": false }]\n}',
       },
     ],
+  },
+
+  scimDeleteUser: {
+    surface: 'scim',
+    method: 'DELETE',
+    label: 'deleteUser',
+    urlTemplate: 'https://users.lucid.app/scim/v2/Users/{userId}',
+    description: 'Deprovision and delete a SCIM user resource.',
+    scope: 'scim',
+    docsUrl: 'https://developer.lucid.co/reference/scim-deleteuser',
+    params: [
+      { name: 'userId', label: 'User ID', type: 'string', required: true, hint: 'The SCIM user resource ID' },
+    ],
+  },
+
+  // ── SCIM Groups ──────────────────────────────────────────────────────────
+  scimGetGroup: {
+    surface: 'scim',
+    method: 'GET',
+    label: 'getGroup',
+    urlTemplate: 'https://users.lucid.app/scim/v2/Groups/{groupId}',
+    description: 'Retrieve a SCIM group resource by ID.',
+    scope: 'scim',
+    docsUrl: 'https://developer.lucid.co/reference/scim-getgroup',
+    params: [
+      { name: 'groupId', label: 'Group ID', type: 'string', required: true, hint: 'The SCIM group resource ID' },
+    ],
+  },
+  scimGetAllGroups: {
+    surface: 'scim',
+    method: 'GET',
+    label: 'getAllGroups',
+    urlTemplate: 'https://users.lucid.app/scim/v2/Groups',
+    description: 'List all SCIM group resources in the account.',
+    scope: 'scim',
+    docsUrl: 'https://developer.lucid.co/reference/scim-getallgroups',
+    params: [],
+  },
+  scimCreateGroup: {
+    surface: 'scim',
+    method: 'POST',
+    label: 'createGroup',
+    urlTemplate: 'https://users.lucid.app/scim/v2/Groups',
+    description: 'Create a new SCIM group with initial members.',
+    scope: 'scim',
+    docsUrl: 'https://developer.lucid.co/reference/scim-creategroup',
+    params: [
+      {
+        name: 'body',
+        label: 'SCIM Group object (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'Must conform to SCIM 2.0 Group schema',
+        placeholder: '{\n  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],\n  "displayName": "Engineering",\n  "members": []\n}',
+      },
+    ],
+  },
+  scimModifyGroupPatch: {
+    surface: 'scim',
+    method: 'PATCH',
+    label: 'modifyGroup (PATCH)',
+    urlTemplate: 'https://users.lucid.app/scim/v2/Groups/{groupId}',
+    description: 'Partially update a SCIM group — add or remove members, rename the group.',
+    scope: 'scim',
+    docsUrl: 'https://developer.lucid.co/reference/scim-modifygroup',
+    params: [
+      { name: 'groupId', label: 'Group ID', type: 'string', required: true, hint: 'SCIM group resource ID' },
+      {
+        name: 'body',
+        label: 'SCIM Patch operation (JSON)',
+        type: 'json',
+        required: true,
+        hint: 'PatchOp body per SCIM 2.0',
+        placeholder: '{\n  "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],\n  "Operations": [{ "op": "add", "path": "members", "value": [{"value": "user-id-here"}] }]\n}',
+      },
+    ],
+  },
+  scimDeleteGroup: {
+    surface: 'scim',
+    method: 'DELETE',
+    label: 'deleteGroup',
+    urlTemplate: 'https://users.lucid.app/scim/v2/Groups/{groupId}',
+    description: 'Delete a SCIM group resource.',
+    scope: 'scim',
+    docsUrl: 'https://developer.lucid.co/reference/scim-deletegroup',
+    params: [
+      { name: 'groupId', label: 'Group ID', type: 'string', required: true, hint: 'The SCIM group resource ID' },
+    ],
+  },
+
+  // ── SCIM Metadata ────────────────────────────────────────────────────────
+  scimServiceProviderConfig: {
+    surface: 'scim',
+    method: 'GET',
+    label: 'serviceProviderConfig',
+    urlTemplate: 'https://users.lucid.app/scim/v2/ServiceProviderConfig',
+    description: "Retrieve Lucid's SCIM service provider configuration — supported features, patch operations, and authentication schemes.",
+    scope: 'scim',
+    docsUrl: 'https://developer.lucid.co/reference/scim-serviceproviderconfig',
+    params: [],
+  },
+  scimResourceTypes: {
+    surface: 'scim',
+    method: 'GET',
+    label: 'resourceTypes',
+    urlTemplate: 'https://users.lucid.app/scim/v2/ResourceTypes',
+    description: 'List the SCIM resource types supported by this provider (User, Group, etc.).',
+    scope: 'scim',
+    docsUrl: 'https://developer.lucid.co/reference/scim-resourcetypes',
+    params: [],
+  },
+  scimSchemas: {
+    surface: 'scim',
+    method: 'GET',
+    label: 'schemas',
+    urlTemplate: 'https://users.lucid.app/scim/v2/Schemas',
+    description: 'Retrieve the full SCIM schema definitions for all supported resource types.',
+    scope: 'scim',
+    docsUrl: 'https://developer.lucid.co/reference/scim-schemas',
+    params: [],
   },
 
   // MCP
@@ -1148,6 +1840,93 @@ function _grabDiagramRefs() {
   _payloadResponse  = $('#flow-payload-response');
 }
 
+// ── Triangle layout helpers ─────────────────────────────────────────────────────
+// Mirror of simActorAnchor / simLayoutTriangleTracks for the OAuth dialog.
+
+function _flowActorAnchor(name) {
+  const container = document.getElementById('flow-actors');
+  const actor = document.getElementById(`actor-${name}`);
+  if (!container || !actor) return { x: 0, y: 0 };
+  const cr = container.getBoundingClientRect();
+  const ar = actor.getBoundingClientRect();
+  const cx = (ar.left + ar.width / 2) - cr.left;
+  // Browser connects from its bottom edge; server/lucid connect from their top edge
+  if (name === 'browser') return { x: cx, y: ar.bottom - cr.top };
+  return { x: cx, y: ar.top - cr.top };
+}
+
+function _flowLayoutTriangleTracks() {
+  const track1 = document.getElementById('flow-track-1');
+  const track2 = document.getElementById('flow-track-2');
+  if (!track1 || !track2) return;
+
+  const browser = _flowActorAnchor('browser');
+  const server  = _flowActorAnchor('server');
+  const lucid   = _flowActorAnchor('lucid');
+
+  function layoutDiagonal(trackEl, from, to) {
+    const left   = Math.min(from.x, to.x);
+    const top    = Math.min(from.y, to.y);
+    const width  = Math.max(1, Math.abs(to.x - from.x));
+    const height = Math.max(1, Math.abs(to.y - from.y));
+
+    trackEl.style.left   = `${left}px`;
+    trackEl.style.top    = `${top}px`;
+    trackEl.style.width  = `${width}px`;
+    trackEl.style.height = `${height}px`;
+
+    // Line origin relative to track bounding box (same technique as simLayoutTriangleTracks)
+    const sx    = from.x - left;
+    const sy    = from.y - top;
+    const ex    = to.x   - left;
+    const ey    = to.y   - top;
+    const len   = Math.hypot(ex - sx, ey - sy);
+    const angle = Math.atan2(ey - sy, ex - sx) * (180 / Math.PI);
+
+    const line = trackEl.querySelector('.flow-arrow-line');
+    if (line) {
+      line.style.left      = `${sx}px`;
+      line.style.top       = `${sy}px`;
+      line.style.width     = `${len}px`;
+      line.style.transform = `rotate(${angle}deg)`;
+    }
+  }
+
+  layoutDiagonal(track1, browser, server);
+  layoutDiagonal(track2, browser, lucid);
+}
+
+// Compute start/end transform for a diagonal packet on a given track.
+function _flowPacketTransform(trackEl, fromName, toName) {
+  const container = document.getElementById('flow-actors');
+  if (!container || !trackEl) return { start: 'translate(0,-50%)', end: 'translate(0,-50%)' };
+  const cr = container.getBoundingClientRect();
+  const tr = trackEl.getBoundingClientRect();
+
+  function anchor(name) {
+    const el = document.getElementById(`actor-${name}`);
+    if (!el) return { x: 0, y: 0 };
+    const ar = el.getBoundingClientRect();
+    const cx = (ar.left + ar.width / 2) - cr.left;
+    if (name === 'browser') return { x: cx, y: ar.bottom - cr.top };
+    return { x: cx, y: ar.top - cr.top };
+  }
+
+  const from = anchor(fromName);
+  const to   = anchor(toName);
+  const ox = tr.left - cr.left; // track offset within container
+  const oy = tr.top  - cr.top;
+
+  const sx = from.x - ox;
+  const sy = from.y - oy;
+  const ex = to.x   - ox;
+  const ey = to.y   - oy;
+  return {
+    start: `translate(${sx}px, calc(${sy}px - 50%))`,
+    end:   `translate(${ex}px, calc(${ey}px - 50%))`,
+  };
+}
+
 // ── Init diagram ───────────────────────────────────────────────────────────────
 // Called every time the modal opens, before renderStep().
 
@@ -1182,13 +1961,19 @@ function initFlowDiagram(steps) {
   [_packet1, _packet2].forEach(p => {
     p.className = 'flow-packet';
     p.textContent = '';
+    p.style.transition = 'none';
+    p.style.transform = 'translate(0, -50%)';
   });
 
   // Collapse payload
   _payloadEl.classList.add('hidden');
   _payloadToggleBtn.textContent = 'Show payload ▾';
 
-  renderStep(0);
+  // Layout diagonal tracks after DOM settles
+  requestAnimationFrame(() => {
+    _flowLayoutTriangleTracks();
+    renderStep(0);
+  });
 }
 
 // ── Step renderer ──────────────────────────────────────────────────────────────
@@ -1215,7 +2000,7 @@ function renderStep(idx) {
   [_packet1, _packet2].forEach(p => {
     p.classList.remove('packet-visible', 'packet-redirect', 'packet-code', 'packet-token');
     p.style.transition = 'none';
-    p.style.left = '0%';
+    p.style.transform = 'translate(0, -50%)';
     p.textContent = '';
   });
 
@@ -1244,20 +2029,19 @@ function renderStep(idx) {
     } else {
       fromActor.classList.add('actor-active');
 
-      // Position packet at start (suppress transition)
-      const startPct = cfg.dir === 'right' ? '0%' : '92%';
-      const endPct   = cfg.dir === 'right' ? '88%' : '4%';
+      const trackEl = document.getElementById(`flow-track-${cfg.track}`);
+      const { start, end } = _flowPacketTransform(trackEl, cfg.from, cfg.to);
 
       packet.textContent = packetLabel;
       if (cfg.packetClass) packet.classList.add(cfg.packetClass);
       packet.style.transition = 'none';
-      packet.style.left = startPct;
+      packet.style.transform = start;
 
       // rAF double-frame trick: let browser settle position before enabling transition
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        packet.style.transition = 'left 0.65s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
+        packet.style.transition = 'transform 0.65s cubic-bezier(0.5, 0, 0.5, 1), opacity 0.25s cubic-bezier(0.5, 0, 0.5, 1)';
         packet.classList.add('packet-visible');
-        packet.style.left = endPct;
+        packet.style.transform = end;
 
         _diagAnimTimer = setTimeout(() => {
           fromActor.classList.remove('actor-active');
@@ -1282,17 +2066,20 @@ function renderStep(idx) {
 function _animateStep5(packet, fromActor, toActor, data) {
   fromActor.classList.add('actor-active');
 
+  const trackEl = document.getElementById('flow-track-2');
+  const outward  = _flowPacketTransform(trackEl, 'server', 'lucid');
+  const returnT  = _flowPacketTransform(trackEl, 'lucid',  'server');
+
   // Phase 1: server → Lucid (POST /token)
-  const postLabel = 'POST /oauth2/token';
-  packet.textContent = postLabel;
+  packet.textContent = 'POST /oauth2/token';
   packet.classList.add('packet-token');
   packet.style.transition = 'none';
-  packet.style.left = '0%';
+  packet.style.transform = outward.start;
 
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    packet.style.transition = 'left 0.65s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
+    packet.style.transition = 'transform 0.65s cubic-bezier(0.5, 0, 0.5, 1), opacity 0.25s cubic-bezier(0.5, 0, 0.5, 1)';
     packet.classList.add('packet-visible');
-    packet.style.left = '88%';
+    packet.style.transform = outward.end;
 
     _diagAnimTimer = setTimeout(() => {
       // Packet arrives at Lucid
@@ -1306,11 +2093,11 @@ function _animateStep5(packet, fromActor, toActor, data) {
         packet.classList.remove('packet-token');
         packet.classList.add('packet-code'); // green for "got the token"
         packet.style.transition = 'none';
-        packet.style.left = '92%';
+        packet.style.transform = returnT.start;
 
         requestAnimationFrame(() => requestAnimationFrame(() => {
-          packet.style.transition = 'left 0.65s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
-          packet.style.left = '4%';
+          packet.style.transition = 'transform 0.65s cubic-bezier(0.5, 0, 0.5, 1), opacity 0.25s cubic-bezier(0.5, 0, 0.5, 1)';
+          packet.style.transform = returnT.end;
 
           _diagAnimTimer = setTimeout(() => {
             toActor.classList.remove('actor-active');
@@ -1887,7 +2674,7 @@ function _dcrRenderStep(idx) {
       packet.offsetHeight;
 
       // Decelerating ease for a cleaner instructional "dock" feel.
-      packet.style.transition = `left ${durationMs}ms cubic-bezier(0.16, 0.84, 0.28, 1), opacity 220ms ease`;
+      packet.style.transition = `left ${durationMs}ms cubic-bezier(0.5, 0, 0.5, 1), opacity 220ms cubic-bezier(0.5, 0, 0.5, 1)`;
       packet.classList.add('dcr-packet-visible');
       packet.style.left = `${endPx}px`;
 
@@ -1957,7 +2744,7 @@ function _animateStreamPackets(effects, step) {
     pkt.style.left = `${gap}px`;
     pkt.offsetHeight; // force layout
     const dur1 = 680;
-    pkt.style.transition = `left ${dur1}ms cubic-bezier(0.16, 0.84, 0.28, 1), opacity 220ms ease`;
+    pkt.style.transition = `left ${dur1}ms cubic-bezier(0.5, 0, 0.5, 1), opacity 220ms cubic-bezier(0.5, 0, 0.5, 1)`;
     pkt.style.left = `${maxRight}px`;
 
     _dcrAnimTimer = setTimeout(() => {
@@ -1966,7 +2753,7 @@ function _animateStreamPackets(effects, step) {
 
       // Short pause, then return packet slides back left
       setTimeout(() => {
-        pkt.style.transition = 'opacity 150ms ease';
+        pkt.style.transition = 'opacity 150ms cubic-bezier(0.5, 0, 0.5, 1)';
         pkt.classList.remove('dcr-packet-visible');
 
         setTimeout(() => {
@@ -1978,7 +2765,7 @@ function _animateStreamPackets(effects, step) {
           pkt.style.left = `${maxRight}px`;
           pkt.offsetHeight; // force layout
           const dur2 = 750;
-          pkt.style.transition = `left ${dur2}ms cubic-bezier(0.16, 0.84, 0.28, 1), opacity 220ms ease`;
+          pkt.style.transition = `left ${dur2}ms cubic-bezier(0.5, 0, 0.5, 1), opacity 220ms cubic-bezier(0.5, 0, 0.5, 1)`;
           pkt.classList.add('dcr-packet-visible');
           pkt.style.left = `${gap}px`;
 
@@ -4781,10 +5568,10 @@ function simLaunchPacket(wave, index, flightMs) {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     pktEl.classList.add('sim-packet-visible');
     if (isHorizontal) {
-      pktEl.style.transition = `left ${flightMs}ms linear`;
+      pktEl.style.transition = `left ${flightMs}ms cubic-bezier(0.5, 0, 0.5, 1)`;
       pktEl.style.left = `${endLeftPx}px`;
     } else {
-      pktEl.style.transition = `transform ${flightMs}ms linear`;
+      pktEl.style.transition = `transform ${flightMs}ms cubic-bezier(0.5, 0, 0.5, 1)`;
       pktEl.style.transform = endTransform;
     }
     simFlightTimer = setTimeout(() => {
@@ -5402,7 +6189,7 @@ function samlSendPacket(trackNum, direction, label, isFault, destActor) {
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
         pktEl.classList.add('saml-packet-visible');
-        pktEl.style.transition = 'left ' + TRAVEL_MS + 'ms linear';
+        pktEl.style.transition = 'left ' + TRAVEL_MS + 'ms cubic-bezier(0.5, 0, 0.5, 1)';
         pktEl.style.left = endLeft;
 
         setTimeout(function() {

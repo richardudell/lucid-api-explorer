@@ -133,33 +133,68 @@ All tokens are held in this app's memory only — nothing is written to disk. To
 
 ### REST API
 
-| Endpoint | Method | Scope required |
-|---|---|---|
-| `getAccountInfo` | `GET /accounts/me` | `account.info` |
-| `searchAccountDocuments` | `POST /accounts/me/documents/search` | `lucidchart.document.content:admin.readonly` |
-| `searchDocuments` | `POST /documents/search` | `lucidchart.document.content:readonly` |
-| `createDocument` | `POST /documents` | `lucidchart.document.content` |
-| `getDocument` | `GET /documents/{documentId}` | `lucidchart.document.content:readonly` |
-| `getDocumentContents` | `GET /documents/{documentId}/contents` | `lucidchart.document.content:readonly` |
-| `trashDocument` | `POST /documents/{documentId}/trash` | `lucidchart.document.content` |
-| `getFolder` | `GET /folders/{folderId}` | `folder:readonly` |
-| `createFolder` | `POST /folders` | `folder` |
-| `updateFolder` | `PATCH /folders/{folderId}` | `folder` |
-| `trashFolder` | `POST /folders/{folderId}/trash` | `folder` |
-| `restoreFolder` | `POST /folders/{folderId}/restore` | `folder` |
-| `listFolderContents` | `GET /folders/{folderId}/contents` | `folder:readonly` |
-| `listRootFolderContents` | `GET /folders/root/contents` | `folder:readonly` |
-| `getUser` | `GET /users/{userId}` | `account.user:readonly` |
-| `listUsers` | `GET /users` | `account.user:readonly` |
-| `userEmailSearch` | `GET /users?email=...` | `account.user:readonly` |
-| `getUserProfile` | `GET /users/me/profile` | `account.user:readonly` |
-| `createUser` | `POST /users` | `account.user` |
-| `refreshAccessToken` | `POST /oauth2/token` | — |
-| `introspectToken` | `POST /oauth2/introspect` | — |
-| `revokeToken` | `POST /oauth2/revoke` | — |
-| `importStandardImport` | `POST /documents` (multipart) | `lucidchart.document.content` |
+| Domain | Endpoint | Method | Token |
+|---|---|---|---|
+| Accounts | `getAccountInfo` | `GET /accounts/me` | user |
+| Documents | `searchAccountDocuments` | `POST /accounts/me/documents/search` | account |
+| Documents | `searchDocuments` | `POST /documents/search` | user |
+| Documents | `createDocument` | `POST /documents` | user |
+| Documents | `getDocument` | `GET /documents/{documentId}` | user |
+| Documents | `getDocumentContents` | `GET /documents/{documentId}/contents` | user |
+| Documents | `trashDocument` | `POST /documents/{documentId}/trash` | user |
+| Documents | `importStandardImport` | `POST /documents` (multipart) | user |
+| Folders | `getFolder` | `GET /folders/{folderId}` | user |
+| Folders | `createFolder` | `POST /folders` | user |
+| Folders | `updateFolder` | `PATCH /folders/{folderId}` | user |
+| Folders | `trashFolder` | `POST /folders/{folderId}/trash` | user |
+| Folders | `restoreFolder` | `POST /folders/{folderId}/restore` | user |
+| Folders | `listFolderContents` | `GET /folders/{folderId}/contents` | user |
+| Folders | `listRootFolderContents` | `GET /folders/root/contents` | user |
+| Folders | `searchFolders` | `POST /folders/search` | user |
+| Users | `getUser` | `GET /users/{userId}` | user |
+| Users | `listUsers` | `GET /users` | account |
+| Users | `userEmailSearch` | `GET /users?email=...` | user |
+| Users | `getUserProfile` | `GET /users/me/profile` | user |
+| Users | `createUser` | `POST /users` | account |
+| Users | `transferUserContent` | `POST /users/{userId}/transfercontent` | account |
+| Collaboration | `listDocumentUserCollaborators` | `GET /documents/{id}/collaborators/users` | user |
+| Collaboration | `getDocumentUserCollaborator` | `GET /documents/{id}/collaborators/users/{userId}` | user |
+| Collaboration | `putDocumentUserCollaborator` | `PUT /documents/{id}/collaborators/users/{userId}` | user |
+| Collaboration | `deleteDocumentUserCollaborator` | `DELETE /documents/{id}/collaborators/users/{userId}` | user |
+| Collaboration | `getDocumentTeamCollaborator` | `GET /documents/{id}/collaborators/teams/{teamId}` | user |
+| Collaboration | `putDocumentTeamCollaborator` | `PUT /documents/{id}/collaborators/teams/{teamId}` | user |
+| Collaboration | `deleteDocumentTeamCollaborator` | `DELETE /documents/{id}/collaborators/teams/{teamId}` | user |
+| Collaboration | `listFolderUserCollaborators` | `GET /folders/{id}/collaborators/users` | user |
+| Collaboration | `putFolderUserCollaborator` | `PUT /folders/{id}/collaborators/users/{userId}` | user |
+| Collaboration | `deleteFolderUserCollaborator` | `DELETE /folders/{id}/collaborators/users/{userId}` | user |
+| Collaboration | `listFolderGroupCollaborators` | `GET /folders/{id}/collaborators/groups` | user |
+| Collaboration | `putFolderGroupCollaborator` | `PUT /folders/{id}/collaborators/groups/{groupId}` | user |
+| Collaboration | `deleteFolderGroupCollaborator` | `DELETE /folders/{id}/collaborators/groups/{groupId}` | user |
+| Sharing | `getDocumentShareLink` | `GET /documents/{id}/sharelink` | user |
+| Sharing | `createDocumentShareLink` | `POST /documents/{id}/sharelink` | user |
+| Sharing | `updateDocumentShareLink` | `PATCH /documents/{id}/sharelink` | user |
+| Sharing | `deleteDocumentShareLink` | `DELETE /documents/{id}/sharelink` | user |
+| Sharing | `getFolderShareLink` | `GET /folders/{id}/sharelink` | user |
+| Sharing | `createFolderShareLink` | `POST /folders/{id}/sharelink` | user |
+| Sharing | `updateFolderShareLink` | `PATCH /folders/{id}/sharelink` | user |
+| Sharing | `deleteFolderShareLink` | `DELETE /folders/{id}/sharelink` | user |
+| Sharing | `acceptShareLink` | `POST /sharelinks/accept` | user |
+| Teams | `listTeams` | `GET /teams` | account |
+| Teams | `createTeam` | `POST /teams` | account |
+| Teams | `getTeam` | `GET /teams/{teamId}` | account |
+| Teams | `updateTeam` | `PATCH /teams/{teamId}` | account |
+| Teams | `archiveTeam` | `POST /teams/{teamId}/archive` | account |
+| Teams | `restoreTeam` | `POST /teams/{teamId}/restore` | account |
+| Teams | `listUsersOnTeam` | `GET /teams/{teamId}/users` | account |
+| Teams | `addUsersToTeam` | `POST /teams/{teamId}/users` | account |
+| Teams | `removeUsersFromTeam` | `POST /teams/{teamId}/users/remove` | account |
+| Audit Logs | `getAuditLogs` | `GET /auditlog` | account |
+| Audit Logs | `queryAuditLogs` | `POST /auditlog/query` | account |
+| OAuth | `refreshAccessToken` | `POST /oauth2/token` | — |
+| OAuth | `introspectToken` | `POST /oauth2/introspect` | — |
+| OAuth | `revokeToken` | `POST /oauth2/revoke` | — |
 
-The app manages two separate OAuth tokens: a **user token** (for user-context endpoints like `getUser`) and an **account token** (for account-admin endpoints like `createUser` and `listUsers`). Lucid uses different authorization URLs for each, and the app handles both flows independently.
+The app manages two separate OAuth tokens: a **user token** (for user-context endpoints) and an **account token** (for account-admin endpoints like `createUser`, `listTeams`, and audit logs). Lucid uses different authorization URLs for each, and the app handles both flows independently.
 
 ### SCIM API
 
@@ -170,8 +205,26 @@ The app manages two separate OAuth tokens: a **user token** (for user-context en
 | `scimCreateUser` | `POST /scim/v2/Users` |
 | `scimModifyUserPut` | `PUT /scim/v2/Users/{userId}` |
 | `scimModifyUserPatch` | `PATCH /scim/v2/Users/{userId}` |
+| `scimDeleteUser` | `DELETE /scim/v2/Users/{userId}` |
+| `scimGetGroup` | `GET /scim/v2/Groups/{groupId}` |
+| `scimGetAllGroups` | `GET /scim/v2/Groups` |
+| `scimCreateGroup` | `POST /scim/v2/Groups` |
+| `scimModifyGroupPatch` | `PATCH /scim/v2/Groups/{groupId}` |
+| `scimDeleteGroup` | `DELETE /scim/v2/Groups/{groupId}` |
+| `scimServiceProviderConfig` | `GET /scim/v2/ServiceProviderConfig` |
+| `scimResourceTypes` | `GET /scim/v2/ResourceTypes` |
+| `scimSchemas` | `GET /scim/v2/Schemas` |
 
 SCIM PATCH uses the SCIM 2.0 PatchOp schema — the app constructs the correct envelope and sets `Content-Type: application/scim+json`.
+
+### Intentional omissions
+
+The following Lucid API areas are documented in the URL inventory but were deferred:
+
+- **Cloud / Data Sources / Models / Credentials** — too broad and provider-specific (AWS/Azure/GCP variants each require separate credential types). Adding representative coverage would require ambiguous payload guessing. Deferred to a future pass once credential workflows are tested.
+- **Legal Holds** — primarily a compliance-team feature, not a support-team tool. Low discovery value for the target audience.
+- **Embedding / Unfurling / Document Picker** — primarily integration-developer features not needed for ops/support use cases.
+- **Subscriptions / Licenses** — license management is best handled in the Admin UI; API coverage adds marginal support value.
 
 ### MCP server
 

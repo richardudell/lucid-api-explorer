@@ -319,35 +319,40 @@
           <button id="btn-flow-next" class="btn-flow-nav" disabled>Next ►</button>
         </div>
 
-        <!-- ── Actor swimlane ── -->
+        <!-- ── Actor swimlane (triangular layout) ── -->
         <div id="flow-actors">
 
-          <div class="flow-actor" id="actor-browser">
-            <div class="actor-icon">🌐</div>
-            <div class="actor-label">Browser</div>
+          <!-- Top row: Browser centered -->
+          <div id="flow-top-row">
+            <div class="flow-actor" id="actor-browser">
+              <div class="actor-icon">🌐</div>
+              <div class="actor-label">Browser</div>
+            </div>
           </div>
 
-          <!-- Track 1: Browser ↔ Server -->
-          <div class="flow-arrow-track" id="flow-track-1">
-            <div class="flow-arrow-line"></div>
-            <div class="flow-packet" id="flow-packet-1"></div>
+          <!-- Mid row: diagonal tracks (positioned by JS) -->
+          <div id="flow-mid-row">
+            <div class="flow-arrow-track flow-track-diagonal" id="flow-track-1">
+              <div class="flow-arrow-line"></div>
+              <div class="flow-packet" id="flow-packet-1"></div>
+            </div>
+            <div class="flow-arrow-track flow-track-diagonal" id="flow-track-2">
+              <div class="flow-arrow-line"></div>
+              <div class="flow-packet" id="flow-packet-2"></div>
+            </div>
           </div>
 
-          <div class="flow-actor" id="actor-server">
-            <div class="actor-icon">⚙</div>
-            <div class="actor-label">Your Server</div>
-            <div class="actor-role-sub"><span class="actor-this-app">this app</span></div>
-          </div>
-
-          <!-- Track 2: Server ↔ Lucid -->
-          <div class="flow-arrow-track" id="flow-track-2">
-            <div class="flow-arrow-line"></div>
-            <div class="flow-packet" id="flow-packet-2"></div>
-          </div>
-
-          <div class="flow-actor" id="actor-lucid">
-            <div class="actor-icon">◈</div>
-            <div class="actor-label">Lucid</div>
+          <!-- Bottom row: Server left, Lucid right -->
+          <div id="flow-bottom-row">
+            <div class="flow-actor" id="actor-server">
+              <div class="actor-icon">⚙</div>
+              <div class="actor-label">Your Server</div>
+              <div class="actor-role-sub"><span class="actor-this-app">this app</span></div>
+            </div>
+            <div class="flow-actor" id="actor-lucid">
+              <div class="actor-icon">◈</div>
+              <div class="actor-label">Lucid</div>
+            </div>
           </div>
 
         </div><!-- /flow-actors -->
@@ -476,6 +481,9 @@
               <li class="endpoint-item" data-surface="rest" data-endpoint="listRootFolderContents">
                 <span class="method-badge badge-get">GET</span>listRootFolderContents
               </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="searchFolders">
+                <span class="method-badge badge-post">POST</span>searchFolders
+              </li>
             </ul>
 
             <!-- Users group -->
@@ -498,7 +506,140 @@
               <li class="endpoint-item" data-surface="rest" data-endpoint="createUser">
                 <span class="method-badge badge-post">POST</span>createUser
               </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="transferUserContent">
+                <span class="method-badge badge-post">POST</span>transferUserContent
+              </li>
             </ul>
+
+            <!-- Collaboration group -->
+            <li class="endpoint-group-header" data-group="collaboration">
+              <span class="group-chevron">›</span> Collaboration
+            </li>
+            <ul class="endpoint-sublist" id="group-collaboration">
+              <li class="endpoint-item" data-surface="rest" data-endpoint="listDocumentUserCollaborators">
+                <span class="method-badge badge-get">GET</span>listDocumentUserCollaborators
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getDocumentUserCollaborator">
+                <span class="method-badge badge-get">GET</span>getDocumentUserCollaborator
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="putDocumentUserCollaborator">
+                <span class="method-badge badge-put">PUT</span>putDocumentUserCollaborator
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="deleteDocumentUserCollaborator">
+                <span class="method-badge badge-delete">DEL</span>deleteDocumentUserCollaborator
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getDocumentTeamCollaborator">
+                <span class="method-badge badge-get">GET</span>getDocumentTeamCollaborator
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="putDocumentTeamCollaborator">
+                <span class="method-badge badge-put">PUT</span>putDocumentTeamCollaborator
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="deleteDocumentTeamCollaborator">
+                <span class="method-badge badge-delete">DEL</span>deleteDocumentTeamCollaborator
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="listFolderUserCollaborators">
+                <span class="method-badge badge-get">GET</span>listFolderUserCollaborators
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="putFolderUserCollaborator">
+                <span class="method-badge badge-put">PUT</span>putFolderUserCollaborator
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="deleteFolderUserCollaborator">
+                <span class="method-badge badge-delete">DEL</span>deleteFolderUserCollaborator
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="listFolderGroupCollaborators">
+                <span class="method-badge badge-get">GET</span>listFolderGroupCollaborators
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="putFolderGroupCollaborator">
+                <span class="method-badge badge-put">PUT</span>putFolderGroupCollaborator
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="deleteFolderGroupCollaborator">
+                <span class="method-badge badge-delete">DEL</span>deleteFolderGroupCollaborator
+              </li>
+            </ul>
+
+            <!-- Sharing group -->
+            <li class="endpoint-group-header" data-group="sharing">
+              <span class="group-chevron">›</span> Sharing
+            </li>
+            <ul class="endpoint-sublist" id="group-sharing">
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getDocumentShareLink">
+                <span class="method-badge badge-get">GET</span>getDocumentShareLink
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="createDocumentShareLink">
+                <span class="method-badge badge-post">POST</span>createDocumentShareLink
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="updateDocumentShareLink">
+                <span class="method-badge badge-patch">PATCH</span>updateDocumentShareLink
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="deleteDocumentShareLink">
+                <span class="method-badge badge-delete">DEL</span>deleteDocumentShareLink
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getFolderShareLink">
+                <span class="method-badge badge-get">GET</span>getFolderShareLink
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="createFolderShareLink">
+                <span class="method-badge badge-post">POST</span>createFolderShareLink
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="updateFolderShareLink">
+                <span class="method-badge badge-patch">PATCH</span>updateFolderShareLink
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="deleteFolderShareLink">
+                <span class="method-badge badge-delete">DEL</span>deleteFolderShareLink
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="acceptShareLink">
+                <span class="method-badge badge-post">POST</span>acceptShareLink
+              </li>
+            </ul>
+
+            <!-- Teams group -->
+            <li class="endpoint-group-header" data-group="teams">
+              <span class="group-chevron">›</span> Teams
+            </li>
+            <ul class="endpoint-sublist" id="group-teams">
+              <li class="endpoint-item" data-surface="rest" data-endpoint="listTeams">
+                <span class="method-badge badge-get">GET</span>listTeams
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="createTeam">
+                <span class="method-badge badge-post">POST</span>createTeam
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getTeam">
+                <span class="method-badge badge-get">GET</span>getTeam
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="updateTeam">
+                <span class="method-badge badge-patch">PATCH</span>updateTeam
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="archiveTeam">
+                <span class="method-badge badge-post">POST</span>archiveTeam
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="restoreTeam">
+                <span class="method-badge badge-post">POST</span>restoreTeam
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="listUsersOnTeam">
+                <span class="method-badge badge-get">GET</span>listUsersOnTeam
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="addUsersToTeam">
+                <span class="method-badge badge-post">POST</span>addUsersToTeam
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="removeUsersFromTeam">
+                <span class="method-badge badge-post">POST</span>removeUsersFromTeam
+              </li>
+            </ul>
+
+            <!-- Audit Logs group -->
+            <li class="endpoint-group-header" data-group="audit">
+              <span class="group-chevron">›</span> Audit Logs
+            </li>
+            <ul class="endpoint-sublist" id="group-audit">
+              <li class="endpoint-item" data-surface="rest" data-endpoint="getAuditLogs">
+                <span class="method-badge badge-get">GET</span>getAuditLogs
+              </li>
+              <li class="endpoint-item" data-surface="rest" data-endpoint="queryAuditLogs">
+                <span class="method-badge badge-post">POST</span>queryAuditLogs
+              </li>
+            </ul>
+
+            <!-- Folders group (extend with searchFolders) -->
+            <!-- searchFolders is in the Folders group defined above; see group-folders -->
 
             <!-- OAuth Tokens group -->
             <li class="endpoint-group-header" data-group="oauth">
@@ -530,21 +671,70 @@
             <span class="surface-chevron">›</span>
           </div>
           <ul class="endpoint-list" id="endpoints-scim">
-            <li class="endpoint-item" data-surface="scim" data-endpoint="scimGetUser">
-              <span class="method-badge badge-get">GET</span>getUser
+
+            <!-- Users -->
+            <li class="endpoint-group-header" data-group="scim-users">
+              <span class="group-chevron">›</span> Users
             </li>
-            <li class="endpoint-item" data-surface="scim" data-endpoint="scimGetAllUsers">
-              <span class="method-badge badge-get">GET</span>getAllUsers
+            <ul class="endpoint-sublist" id="group-scim-users">
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimGetUser">
+                <span class="method-badge badge-get">GET</span>getUser
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimGetAllUsers">
+                <span class="method-badge badge-get">GET</span>getAllUsers
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimCreateUser">
+                <span class="method-badge badge-post">POST</span>createUser
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimModifyUserPut">
+                <span class="method-badge badge-put">PUT</span>modifyUser (PUT)
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimModifyUserPatch">
+                <span class="method-badge badge-patch">PATCH</span>modifyUser (PATCH)
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimDeleteUser">
+                <span class="method-badge badge-delete">DEL</span>deleteUser
+              </li>
+            </ul>
+
+            <!-- Groups -->
+            <li class="endpoint-group-header" data-group="scim-groups">
+              <span class="group-chevron">›</span> Groups
             </li>
-            <li class="endpoint-item" data-surface="scim" data-endpoint="scimCreateUser">
-              <span class="method-badge badge-post">POST</span>createUser
+            <ul class="endpoint-sublist" id="group-scim-groups">
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimGetGroup">
+                <span class="method-badge badge-get">GET</span>getGroup
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimGetAllGroups">
+                <span class="method-badge badge-get">GET</span>getAllGroups
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimCreateGroup">
+                <span class="method-badge badge-post">POST</span>createGroup
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimModifyGroupPatch">
+                <span class="method-badge badge-patch">PATCH</span>modifyGroup (PATCH)
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimDeleteGroup">
+                <span class="method-badge badge-delete">DEL</span>deleteGroup
+              </li>
+            </ul>
+
+            <!-- Metadata -->
+            <li class="endpoint-group-header" data-group="scim-meta">
+              <span class="group-chevron">›</span> Metadata
             </li>
-            <li class="endpoint-item" data-surface="scim" data-endpoint="scimModifyUserPut">
-              <span class="method-badge badge-put">PUT</span>modifyUser
-            </li>
-            <li class="endpoint-item" data-surface="scim" data-endpoint="scimModifyUserPatch">
-              <span class="method-badge badge-patch">PATCH</span>modifyUser
-            </li>
+            <ul class="endpoint-sublist" id="group-scim-meta">
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimServiceProviderConfig">
+                <span class="method-badge badge-get">GET</span>serviceProviderConfig
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimResourceTypes">
+                <span class="method-badge badge-get">GET</span>resourceTypes
+              </li>
+              <li class="endpoint-item" data-surface="scim" data-endpoint="scimSchemas">
+                <span class="method-badge badge-get">GET</span>schemas
+              </li>
+            </ul>
+
           </ul>
         </div>
 

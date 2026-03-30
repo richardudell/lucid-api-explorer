@@ -54,6 +54,50 @@ ENDPOINT_REGISTRY: dict[str, dict] = {
         "url": lambda p: _url(f"/Users/{p['userId']}"),
         "has_body": True,
     },
+
+    # ── User — delete ─────────────────────────────────────────────────────────
+    "scimDeleteUser": {
+        "method": "DELETE",
+        "url": lambda p: _url(f"/Users/{p['userId']}"),
+    },
+
+    # ── Groups ────────────────────────────────────────────────────────────────
+    "scimGetGroup": {
+        "method": "GET",
+        "url": lambda p: _url(f"/Groups/{p['groupId']}"),
+    },
+    "scimGetAllGroups": {
+        "method": "GET",
+        "url": lambda p: _url("/Groups"),
+    },
+    "scimCreateGroup": {
+        "method": "POST",
+        "url": lambda p: _url("/Groups"),
+        "has_body": True,
+    },
+    "scimModifyGroupPatch": {
+        "method": "PATCH",
+        "url": lambda p: _url(f"/Groups/{p['groupId']}"),
+        "has_body": True,
+    },
+    "scimDeleteGroup": {
+        "method": "DELETE",
+        "url": lambda p: _url(f"/Groups/{p['groupId']}"),
+    },
+
+    # ── SCIM metadata endpoints ───────────────────────────────────────────────
+    "scimServiceProviderConfig": {
+        "method": "GET",
+        "url": lambda p: _url("/ServiceProviderConfig"),
+    },
+    "scimResourceTypes": {
+        "method": "GET",
+        "url": lambda p: _url("/ResourceTypes"),
+    },
+    "scimSchemas": {
+        "method": "GET",
+        "url": lambda p: _url("/Schemas"),
+    },
 }
 
 

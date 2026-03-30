@@ -114,12 +114,53 @@ Current wrapped routes:
 3. Tokens are ephemeral by design
 - Restarting `python main.py` clears auth state and MCP session tokens.
 
+## Endpoint coverage expansion (this pass)
+
+### REST — newly added domains
+
+**Priority 1 — Collaboration**
+- Document user collaborators: list, get, put (create/update), delete
+- Document team collaborators: get, put, delete
+- Folder user collaborators: list, put, delete
+- Folder group collaborators: list, put, delete
+
+**Priority 1 — Sharing**
+- Document share links: get, create (POST), update (PATCH), delete
+- Folder share links: get, create (POST), update (PATCH), delete
+- Accept share link (POST /sharelinks/accept)
+
+**Priority 2 — Teams**
+- listTeams, createTeam, getTeam, updateTeam
+- archiveTeam, restoreTeam
+- listUsersOnTeam, addUsersToTeam, removeUsersFromTeam
+
+**Priority 3 — Audit + utility**
+- getAuditLogs (GET /auditlog)
+- queryAuditLogs (POST /auditlog/query)
+- searchFolders (POST /folders/search)
+- transferUserContent (POST /users/{userId}/transfercontent)
+
+All collaboration/sharing endpoints use the **user token**. All team and audit endpoints use the **account token**.
+
+### SCIM — newly added
+
+- `scimDeleteUser` — `DELETE /scim/v2/Users/{userId}`
+- Groups: getGroup, getAllGroups, createGroup, modifyGroupPatch, deleteGroup
+- Metadata: ServiceProviderConfig, ResourceTypes, Schemas
+
+### Intentional deferrals
+
+- Cloud / Data Sources / Models / Credentials — ambiguous multi-provider payloads
+- Legal Holds — compliance-only, low support value
+- Embedding / Unfurling / Document Picker — integration-developer features
+- Subscriptions / Licenses — Admin UI is the right tool
+
 ## Immediate next-best technical improvements
 
 1. Add explicit terminal signal when SI fallback removes lines
 - Surface a clear note in UI response panel so users know why lines are missing.
 
-2. Add SI “strict mode” toggle
+2. Add SI "strict mode" toggle
 - strict: fail loudly on line schema issues
 - compatibility: keep retry-without-lines behavior
 
@@ -128,10 +169,6 @@ Current wrapped routes:
 
 ## Git state expectation
 
-Work is on:
+Work is on `main`.
 
-- `experiment/v2-standard-import`
-
-Main recent commit:
-
-- `0a1e5af` (SI normalization + templates/UX changes)
+Main recent commit: endpoint coverage expansion (collaboration, sharing, teams, audit, SCIM groups + metadata)

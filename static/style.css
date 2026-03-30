@@ -295,7 +295,7 @@ html, body {
   border-color: color-mix(in srgb, var(--lucid-blue) 70%, #b2c2ff 30%);
   color: #eef3ff;
   background: color-mix(in srgb, var(--panel-mid) 86%, #627cff 14%);
-  animation: authAttentionPulse 1.9s ease-in-out infinite;
+  animation: authAttentionPulse 1.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 
 @keyframes authAttentionPulse {
@@ -620,7 +620,7 @@ html, body {
   margin: 0;
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.2s ease;
+  transition: max-height 0.2s cubic-bezier(0.5, 0, 0.5, 1);
 }
 
 .endpoint-sublist.open {
@@ -641,8 +641,9 @@ html, body {
 .badge-get   { background: color-mix(in srgb, var(--get-color) 20%, transparent); color: var(--get-color); border: 1px solid color-mix(in srgb, var(--get-color) 40%, transparent); }
 .badge-post  { background: color-mix(in srgb, var(--post-color) 20%, transparent); color: var(--post-color); border: 1px solid color-mix(in srgb, var(--post-color) 40%, transparent); }
 .badge-put   { background: color-mix(in srgb, var(--put-color) 20%, transparent); color: var(--put-color); border: 1px solid color-mix(in srgb, var(--put-color) 40%, transparent); }
-.badge-patch { background: color-mix(in srgb, var(--patch-color) 20%, transparent); color: var(--patch-color); border: 1px solid color-mix(in srgb, var(--patch-color) 40%, transparent); }
-.badge-mcp   { background: color-mix(in srgb, var(--mcp-color) 20%, transparent); color: var(--mcp-color); border: 1px solid color-mix(in srgb, var(--mcp-color) 40%, transparent); }
+.badge-patch  { background: color-mix(in srgb, var(--patch-color) 20%, transparent); color: var(--patch-color); border: 1px solid color-mix(in srgb, var(--patch-color) 40%, transparent); }
+.badge-delete { background: color-mix(in srgb, var(--delete-color) 20%, transparent); color: var(--delete-color); border: 1px solid color-mix(in srgb, var(--delete-color) 40%, transparent); }
+.badge-mcp    { background: color-mix(in srgb, var(--mcp-color) 20%, transparent); color: var(--mcp-color); border: 1px solid color-mix(in srgb, var(--mcp-color) 40%, transparent); }
 
 /* Notepad */
 #sidebar-notepad {
@@ -813,14 +814,14 @@ html, body {
   background: color-mix(in srgb, var(--lucid-blue) 40%, var(--border));
 }
 .arch-arrow.arch-flowing .arch-arrow-pulse {
-  animation: arch-pulse 0.8s ease-in-out infinite;
+  animation: arch-pulse 0.8s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 .arch-arrow.arch-returning .arch-arrow-line {
   background: color-mix(in srgb, var(--terminal-green) 40%, var(--border));
 }
 .arch-arrow.arch-returning .arch-arrow-pulse {
   background: var(--terminal-green);
-  animation: arch-pulse 0.8s ease-in-out infinite;
+  animation: arch-pulse 0.8s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 
 .arch-arrow-head {
@@ -1557,7 +1558,7 @@ textarea.param-input {
   display: flex;
   flex-direction: column;
   z-index: 50;
-  transition: height 0.25s ease;
+  transition: height 0.25s cubic-bezier(0.5, 0, 0.5, 1);
   overflow: hidden;
   box-shadow: 0 18px 34px rgba(3, 7, 18, 0.48);
 }
@@ -1951,7 +1952,7 @@ body.panel-expanded #workspace {
   border: 2px solid var(--border);
   border-top-color: var(--lucid-blue);
   border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  animation: spin 0.7s cubic-bezier(0.5, 0, 0.5, 1) infinite;
   vertical-align: middle;
   margin-right: 6px;
 }
@@ -2052,7 +2053,7 @@ body.panel-expanded #workspace {
   gap: 6px;
   flex-shrink: 0;
   width: 80px;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s cubic-bezier(0.5, 0, 0.5, 1);
 }
 .dcr-actor-icon {
   width: 40px;
@@ -2093,7 +2094,7 @@ body.panel-expanded #workspace {
   box-shadow: 0 0 0 3px rgba(80,200,120,0.18);
 }
 .dcr-actor.dcr-pulse .dcr-actor-icon {
-  animation: dcrPulse 1.1s ease-in-out infinite;
+  animation: dcrPulse 1.1s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 @keyframes dcrPulse {
   0%,100% { box-shadow: 0 0 0 0px rgba(41,98,255,0.4); }
@@ -2107,7 +2108,7 @@ body.panel-expanded #workspace {
     rgba(0,200,212,0.5) 50%,
     var(--border) 100%);
   background-size: 200% 100%;
-  animation: dcrStreamFlow 1.4s linear infinite;
+  animation: dcrStreamFlow 1.4s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 @keyframes dcrStreamFlow {
   0%   { background-position: 100% 0; }
@@ -2624,12 +2625,39 @@ body.panel-expanded #workspace {
   letter-spacing: 0.06em;
 }
 
-/* ── Actor swimlane ── */
+/* ── Actor swimlane (triangular layout) ── */
 #flow-actors {
-  display: flex;
-  align-items: center;
+  position: relative;
   margin-bottom: 14px;
-  height: 80px;
+  height: 200px;
+}
+
+#flow-top-row {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90px;
+  display: flex;
+  justify-content: center;
+}
+
+#flow-mid-row {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#flow-bottom-row {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100% - 28px));
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
 }
 
 .flow-actor {
@@ -2644,7 +2672,7 @@ body.panel-expanded #workspace {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-dark);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+  transition: border-color 0.3s cubic-bezier(0.5, 0, 0.5, 1), box-shadow 0.3s cubic-bezier(0.5, 0, 0.5, 1), background 0.3s cubic-bezier(0.5, 0, 0.5, 1);
   cursor: default;
   flex-shrink: 0;
 }
@@ -2668,7 +2696,7 @@ body.panel-expanded #workspace {
   border-color: var(--warning-amber);
   background: color-mix(in srgb, var(--warning-amber) 10%, var(--surface-dark));
   box-shadow: 0 0 12px color-mix(in srgb, var(--warning-amber) 35%, transparent);
-  animation: actor-pulse-anim 0.8s ease-in-out;
+  animation: actor-pulse-anim 0.8s cubic-bezier(0.5, 0, 0.5, 1);
 }
 
 @keyframes actor-pulse-anim {
@@ -2694,26 +2722,34 @@ body.panel-expanded #workspace {
 
 /* ── Arrow tracks ── */
 .flow-arrow-track {
-  flex: 1;
   position: relative;
-  height: 72px;
-  display: flex;
-  align-items: center;
+}
+
+/* Diagonal tracks positioned by JS (same technique as sim-track-diagonal) */
+.flow-track-diagonal {
+  position: absolute;
+  width: 0;
+  height: 0;
+  top: 0;
+  left: 0;
 }
 
 .flow-arrow-line {
   position: absolute;
   left: 0;
-  right: 0;
+  top: 0;
+  right: auto;
   height: 0;
+  transform-origin: 0 0;
   border-top: 1px dashed var(--border);
 }
 
 /* ── Packet ── */
 .flow-packet {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 0;
+  left: 0;
+  transform: translate(0, -50%);
   background: var(--lucid-blue);
   color: #fff;
   font-family: var(--font-mono);
@@ -2728,9 +2764,8 @@ body.panel-expanded #workspace {
   pointer-events: none;
   z-index: 5;
   box-shadow: 0 0 10px color-mix(in srgb, var(--lucid-blue) 70%, transparent);
-  transition: left 0.65s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  transition: transform 0.65s cubic-bezier(0.5, 0, 0.5, 1), opacity 0.25s cubic-bezier(0.5, 0, 0.5, 1);
   opacity: 0;
-  left: 0%;
 }
 
 .flow-packet.packet-visible {
@@ -3443,7 +3478,7 @@ body.panel-expanded #workspace {
 .sim-actor-pulse {
   border-color: var(--warning-amber) !important;
   background: color-mix(in srgb, var(--warning-amber) 8%, var(--panel-dark)) !important;
-  animation: simActorPulse 0.85s ease-in-out infinite;
+  animation: simActorPulse 0.85s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 .sim-actor-arrive {
   border-color: var(--terminal-green) !important;
@@ -3509,7 +3544,7 @@ body.panel-expanded #workspace {
 .sim-packet.sim-packet-clickable {
   pointer-events: auto;
   cursor: crosshair !important;
-  animation: simPacketGlow 1.1s ease-in-out infinite;
+  animation: simPacketGlow 1.1s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 
 /* Adds swimlane-level pulse when an intercept window opens.
@@ -3520,7 +3555,7 @@ body.panel-expanded #workspace {
   100% { box-shadow: inset 0 0 0 0 color-mix(in srgb, var(--warning-amber) 0%, transparent); }
 }
 #sim-swimlane.sim-swimlane-alert {
-  animation: simLanePulse 0.55s ease-out;
+  animation: simLanePulse 0.55s cubic-bezier(0.5, 0, 0.5, 1);
 }
 
 /* Packet colour variants */
@@ -4118,7 +4153,7 @@ body.panel-expanded #workspace {
   background: var(--terminal-green) !important;
   color: #000 !important;
   font-weight: 700 !important;
-  animation: samlNextPulse 1.1s ease-in-out infinite;
+  animation: samlNextPulse 1.1s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 @keyframes samlNextPulse {
   0%, 100% { box-shadow: 0 0 6px color-mix(in srgb, var(--terminal-green) 40%, transparent); }
@@ -4158,7 +4193,7 @@ body.panel-expanded #workspace {
 .saml-actor-arrive {
   border-color: var(--terminal-green) !important;
   background: color-mix(in srgb, var(--terminal-green) 8%, var(--panel-dark)) !important;
-  animation: samlActorArrive 1.1s ease-in-out infinite;
+  animation: samlActorArrive 1.1s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 
 /* ── SAML packet tracks (replace old .saml-actor-gap) ──────────────────────── */
@@ -4473,7 +4508,7 @@ body.panel-expanded #workspace {
   padding: 16px 0;
 }
 .saml-spinner {
-  animation: saml-spin 1s linear infinite;
+  animation: saml-spin 1s cubic-bezier(0.5, 0, 0.5, 1) infinite;
   display: inline-block;
   color: var(--saml-gold);
   font-size: 16px;
