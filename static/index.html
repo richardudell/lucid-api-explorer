@@ -271,7 +271,7 @@
         <button id="auth-modal-close" class="btn-ghost" title="Close">✕</button>
       </div>
 
-      <!-- Flow type tabs — switch between user token and account token diagrams -->
+      <!-- Flow type tabs — switch between user token, account token, and URL builder -->
       <div id="flow-type-tabs">
         <button class="flow-type-tab active" data-flow="user" id="flow-tab-user">
           User Token
@@ -280,6 +280,9 @@
         <button class="flow-type-tab" data-flow="account" id="flow-tab-account">
           Account Token
           <span class="flow-tab-status" id="flow-tab-account-status"></span>
+        </button>
+        <button class="flow-type-tab" data-flow="builder" id="flow-tab-builder">
+          🔧 Build URL
         </button>
       </div>
 
@@ -309,6 +312,89 @@
           </label>
         </div>
       </div>
+
+      <!-- ── URL Builder Exercise ─────────────────────────────────────────── -->
+      <!-- Hidden unless "Build URL" tab is active. Lets the user manually     -->
+      <!-- assemble the authorization URL parameter by parameter.              -->
+      <div id="url-builder" class="hidden">
+        <div id="url-builder-intro">
+          <strong>Hands-on exercise:</strong> Fill in each parameter below to build
+          the authorization URL yourself. The URL updates as you type — when you're
+          ready, copy it or open it directly.
+        </div>
+
+        <div id="url-builder-fields">
+
+          <div class="url-field-row">
+            <label class="url-field-label" for="ub-base-url">Base URL</label>
+            <div class="url-field-input-wrap">
+              <select id="ub-base-url" class="url-field-select">
+                <option value="https://lucid.app/oauth2/authorize">https://lucid.app/oauth2/authorize — User token</option>
+                <option value="https://lucid.app/oauth2/authorizeAccount">https://lucid.app/oauth2/authorizeAccount — Account token</option>
+              </select>
+            </div>
+            <div class="url-field-hint">Lucid's authorization endpoint. User token uses <code>/authorize</code>; account token uses <code>/authorizeAccount</code>.</div>
+          </div>
+
+          <div class="url-field-row">
+            <label class="url-field-label" for="ub-client-id">client_id</label>
+            <div class="url-field-input-wrap">
+              <input id="ub-client-id" class="url-field-input" type="text" placeholder="Your OAuth client ID from the Developer Portal" />
+            </div>
+            <div class="url-field-hint">Identifies your app to Lucid. Found in the Lucid Developer Portal under your OAuth client.</div>
+          </div>
+
+          <div class="url-field-row">
+            <label class="url-field-label" for="ub-redirect-uri">redirect_uri</label>
+            <div class="url-field-input-wrap">
+              <input id="ub-redirect-uri" class="url-field-input" type="text" placeholder="http://localhost:8000/callback" />
+            </div>
+            <div class="url-field-hint">Where Lucid sends the user after they approve. Must be registered exactly in the Developer Portal — including port and path.</div>
+          </div>
+
+          <div class="url-field-row">
+            <label class="url-field-label" for="ub-response-type">response_type</label>
+            <div class="url-field-input-wrap">
+              <input id="ub-response-type" class="url-field-input url-field-readonly" type="text" value="code" readonly />
+            </div>
+            <div class="url-field-hint">Always <code>code</code> for the Authorization Code flow. This tells Lucid to return a short-lived code, not an access token directly.</div>
+          </div>
+
+          <div class="url-field-row">
+            <label class="url-field-label" for="ub-scope">scope</label>
+            <div class="url-field-input-wrap">
+              <input id="ub-scope" class="url-field-input" type="text" placeholder="account.user:readonly user.profile" />
+            </div>
+            <div class="url-field-hint">Space-separated list of permissions to request. Only ask for what you need — users see every scope on the consent screen.</div>
+          </div>
+
+          <div class="url-field-row">
+            <label class="url-field-label" for="ub-state">state</label>
+            <div class="url-field-input-wrap">
+              <input id="ub-state" class="url-field-input" type="text" placeholder="(leave blank to generate one)" />
+              <button id="ub-generate-state" class="url-field-btn" title="Generate a random state token">⟳ Generate</button>
+            </div>
+            <div class="url-field-hint">A random value your server generates and stores. Lucid echoes it back on the callback — you compare them to block CSRF attacks. Never reuse state tokens.</div>
+          </div>
+
+        </div><!-- /url-builder-fields -->
+
+        <!-- Live URL output -->
+        <div id="url-builder-output-label">Authorization URL</div>
+        <div id="url-builder-output-wrap">
+          <div id="url-builder-output" class="url-builder-output-empty">Fill in the fields above to build the URL</div>
+          <div id="url-builder-output-actions">
+            <button id="ub-copy-btn" class="btn-ghost" disabled>Copy</button>
+            <button id="ub-open-btn" class="btn-execute" disabled>Open in browser →</button>
+          </div>
+        </div>
+
+        <div id="url-builder-breakdown" class="hidden">
+          <div id="url-builder-breakdown-title">Parameter breakdown</div>
+          <div id="url-builder-breakdown-rows"></div>
+        </div>
+
+      </div><!-- /url-builder -->
 
       <div id="auth-flow-diagram">
 
@@ -1475,6 +1561,7 @@
       <button class="panel-tab" data-tab="code">Code</button>
       <button class="panel-tab" data-tab="narrative">Claude Narrative</button>
       <button class="panel-tab sim-tab-locked" data-tab="simulate" id="tab-simulate-btn" title="Complete OAuth to unlock">🎮 Simulate <span class="sim-lock-icon" id="sim-lock-icon">🔒</span></button>
+      <button class="panel-tab" data-tab="docs" id="tab-docs-btn" title="Training &amp; reference documents">📄 Docs</button>
       <button id="panel-expand-btn" title="Expand panel">⤢</button>
       <button id="panel-collapse-btn" title="Collapse / expand panel">▼</button>
     </div>
@@ -1636,6 +1723,31 @@
         </div>
 
       </div><!-- /tab-simulate -->
+
+      <!-- Docs tab -->
+      <div id="tab-docs" class="tab-pane docs-pane">
+        <div id="docs-sidebar">
+          <div class="docs-sidebar-label">DOCUMENTS</div>
+          <div id="docs-nav-list">
+            <div class="docs-nav-loading">Loading documents…</div>
+          </div>
+        </div>
+        <div id="docs-content">
+          <div id="docs-welcome">
+            <div class="docs-welcome-icon">📄</div>
+            <h2 class="docs-welcome-title">Training &amp; Reference Docs</h2>
+            <p class="docs-welcome-sub">Select a document from the left to read it here.</p>
+          </div>
+          <div id="docs-article" class="hidden">
+            <div id="docs-article-header">
+              <div id="docs-article-category"></div>
+              <h1 id="docs-article-title"></h1>
+              <p id="docs-article-desc"></p>
+            </div>
+            <div id="docs-article-body"></div>
+          </div>
+        </div>
+      </div><!-- /tab-docs -->
 
     </div>
   </div><!-- /bottom-panel -->

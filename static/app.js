@@ -1365,6 +1365,7 @@ const tabTerminal   = $('#tab-terminal');
 const tabCode       = $('#tab-code');
 const tabNarrative  = $('#tab-narrative');
 const tabSimulate   = $('#tab-simulate');
+const tabDocs       = $('#tab-docs');
 const terminalOutput = $('#terminal-output');
 const curlOutput    = $('#curl-output');
 const pythonOutput  = $('#python-output');
@@ -2284,6 +2285,7 @@ function _flowAuthRoute() {
 
 // Switch the active flow-type tab and re-render the diagram for that flow.
 // Fetches from the server if we don't have a cached result yet.
+// Also handles the 'builder' tab which shows the URL Builder exercise.
 async function switchFlowTab(flowType) {
   _modalFlowType = flowType;
 
@@ -2292,6 +2294,31 @@ async function switchFlowTab(flowType) {
     t.classList.toggle('active', t.dataset.flow === flowType);
   });
 
+  // Show/hide builder panel vs flow diagram
+  const builderPanel  = $('#url-builder');
+  const flowDiagram   = $('#auth-flow-diagram');
+  const scopeSelector = $('#scope-selector');
+
+  if (flowType === 'builder') {
+    // Builder tab: show builder, hide everything else
+    if (builderPanel)  builderPanel.classList.remove('hidden');
+    if (flowDiagram)   flowDiagram.classList.add('hidden');
+    if (scopeSelector) scopeSelector.classList.add('hidden');
+    authErrorPanel.classList.add('hidden');
+    authSuccessPanel.classList.add('hidden');
+    btnRetryAuth.classList.add('hidden');
+    btnOpenLucid.classList.add('hidden');
+    $('#auth-modal-intro').innerHTML =
+      '<strong>Build the authorization URL yourself</strong> — fill in each parameter ' +
+      'and see the URL form in real time. When ready, open it to start the actual flow.';
+    _initUrlBuilder();
+    return;
+  }
+
+  // Non-builder tabs: restore button and show diagram
+  btnOpenLucid.classList.remove('hidden');
+  if (builderPanel) builderPanel.classList.add('hidden');
+
   // Update intro text and action button label to match the selected flow
   _updateModalIntro(flowType);
 
@@ -2299,6 +2326,7 @@ async function switchFlowTab(flowType) {
   if (_flowCache[flowType]) {
     _applyFlowData(_flowCache[flowType]);
   } else {
+    if (flowDiagram) flowDiagram.classList.remove('hidden');
     initFlowDiagram([]);  // show empty diagram while loading
     authErrorPanel.classList.add('hidden');
     authSuccessPanel.classList.add('hidden');
@@ -2443,6 +2471,169 @@ async function openAuthModalViewer(preferTab = 'user') {
 function closeAuthModal() {
   authModalOverlay.classList.add('hidden');
   if (_diagAnimTimer) { clearTimeout(_diagAnimTimer); _diagAnimTimer = null; }
+}
+
+// ── URL Builder Exercise ───────────────────────────────────────────────────────
+//
+// A hands-on panel (third tab in the auth modal) where the user manually fills in
+// each OAuth authorization URL parameter and watches the URL assemble live.
+// Teaches what each parameter does before they run the automated flow.
+
+const _ubFields = {
+  baseUrl:      () => $('#ub-base-url')?.value      || '',
+  clientId:     () => $('#ub-client-id')?.value     || '',
+  redirectUri:  () => $('#ub-redirect-uri')?.value  || '',
+  responseType: () => 'code',  // always fixed
+  scope:        () => $('#ub-scope')?.value         || '',
+  state:        () => $('#ub-state')?.value         || '',
+};
+
+function _initUrlBuilder() {
+  const outputEl   = $('#url-builder-output');
+  const copyBtn    = $('#ub-copy-btn');
+  const openBtn    = $('#ub-open-btn');
+  const genBtn     = $('#ub-generate-state');
+  const breakdown  = $('#url-builder-breakdown');
+  const bdownRows  = $('#url-builder-breakdown-rows');
+
+  if (!outputEl) return;
+
+  // Pre-fill client_id and redirect_uri from server config
+  fetch('/auth/status').then(r => r.json()).catch(() => null).then(() => {
+    // Pre-fill redirect URI hint from current .env config by peeking at the
+    // authorization URL the server would produce (just read the field placeholder)
+    const rdUri = $('#ub-redirect-uri');
+    if (rdUri && !rdUri.value) rdUri.placeholder = 'http://localhost:8000/callback';
+  });
+
+  // Generate state button
+  if (genBtn) {
+    genBtn.addEventListener('click', () => {
+      const arr = new Uint8Array(24);
+      crypto.getRandomValues(arr);
+      const b64 = btoa(String.fromCharCode(...arr))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      const stateEl = $('#ub-state');
+      if (stateEl) { stateEl.value = b64; _ubRebuild(); }
+    });
+  }
+
+  // Wire all inputs to live rebuild
+  ['ub-base-url','ub-client-id','ub-redirect-uri','ub-scope','ub-state'].forEach(id => {
+    const el = $(`#${id}`);
+    if (el) el.addEventListener('input', _ubRebuild);
+    if (el && el.tagName === 'SELECT') el.addEventListener('change', _ubRebuild);
+  });
+
+  // Copy button
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const url = _ubBuildUrl();
+      if (!url) return;
+      navigator.clipboard.writeText(url).then(() => {
+        const orig = copyBtn.textContent;
+        copyBtn.textContent = 'Copied ✓';
+        setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+      });
+    });
+  }
+
+  // Open button — launches the URL in the same tab (same as the normal auth flow)
+  if (openBtn) {
+    openBtn.addEventListener('click', () => {
+      const url = _ubBuildUrl();
+      if (url) window.location.href = url;
+    });
+  }
+
+  function _ubBuildUrl() {
+    const base     = _ubFields.baseUrl();
+    const clientId = _ubFields.clientId().trim();
+    const redir    = _ubFields.redirectUri().trim();
+    const scope    = _ubFields.scope().trim();
+    const state    = _ubFields.state().trim();
+
+    if (!base || !clientId || !redir) return null;
+
+    const params = new URLSearchParams();
+    params.set('client_id',     clientId);
+    params.set('redirect_uri',  redir);
+    params.set('response_type', 'code');
+    if (scope) params.set('scope', scope);
+    if (state) params.set('state', state);
+
+    return `${base}?${params.toString()}`;
+  }
+
+  function _ubRebuild() {
+    const base     = _ubFields.baseUrl();
+    const clientId = _ubFields.clientId().trim();
+    const redir    = _ubFields.redirectUri().trim();
+    const scope    = _ubFields.scope().trim();
+    const state    = _ubFields.state().trim();
+
+    const hasMinimum = base && clientId && redir;
+
+    if (!hasMinimum) {
+      outputEl.className = 'url-builder-output-empty';
+      outputEl.textContent = 'Fill in Base URL, client_id, and redirect_uri to build the URL';
+      if (copyBtn) copyBtn.disabled = true;
+      if (openBtn) openBtn.disabled = true;
+      if (breakdown) breakdown.classList.add('hidden');
+      return;
+    }
+
+    // Build colour-coded HTML for the URL display
+    const params = [
+      ['client_id',     clientId],
+      ['redirect_uri',  redir],
+      ['response_type', 'code'],
+    ];
+    if (scope) params.push(['scope', scope]);
+    if (state) params.push(['state', state]);
+
+    const paramHtml = params.map(([ k, v ], i) => {
+      const sep = i === 0 ? '?' : '&';
+      return `<span class="ub-param-sep">${sep}</span><span class="ub-param-key">${k}</span><span class="ub-param-sep">=</span><span class="ub-param-val">${encodeURIComponent(v)}</span>`;
+    }).join('');
+
+    outputEl.className = '';
+    outputEl.innerHTML = `<span class="ub-url-base">${escHtml(base)}</span>${paramHtml}`;
+
+    if (copyBtn) copyBtn.disabled = false;
+    if (openBtn) openBtn.disabled = false;
+
+    // Breakdown table
+    if (breakdown && bdownRows) {
+      breakdown.classList.remove('hidden');
+      const allParams = [
+        { key: 'Base URL',       val: base },
+        { key: 'client_id',      val: clientId },
+        { key: 'redirect_uri',   val: redir },
+        { key: 'response_type',  val: 'code' },
+        { key: 'scope',          val: scope  || null },
+        { key: 'state',          val: state  || null },
+      ];
+      bdownRows.innerHTML = allParams.map(({ key, val }) => {
+        const valHtml = val
+          ? `<span class="ub-breakdown-val">${escHtml(val)}</span>`
+          : `<span class="ub-breakdown-val ub-val-empty">(not set)</span>`;
+        return `<div class="ub-breakdown-row"><span class="ub-breakdown-key">${escHtml(key)}</span>${valHtml}</div>`;
+      }).join('');
+    }
+  }
+
+  // Trigger initial render in case fields were pre-filled
+  _ubRebuild();
+}
+
+// Helper: escape HTML for safe insertion into innerHTML
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // ── DCR Explainer Modal ────────────────────────────────────────────────────────
@@ -3926,13 +4117,19 @@ panelTabs.forEach(tab => {
 
 function switchTab(name) {
   panelTabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-  [tabTerminal, tabCode, tabNarrative, tabSimulate].forEach(pane => {
+  [tabTerminal, tabCode, tabNarrative, tabSimulate, tabDocs].forEach(pane => {
     if (!pane) return;
     pane.classList.toggle('active', pane.id === `tab-${name}`);
   });
   if (name === 'simulate' && typeof window.lucidSetBottomPanelMode === 'function') {
     window.lucidSetBottomPanelMode('expanded');
     simLayoutTriangleTracks();
+  }
+  if (name === 'docs') {
+    docsInit();
+    if (typeof window.lucidSetBottomPanelMode === 'function') {
+      window.lucidSetBottomPanelMode('expanded');
+    }
   }
 }
 
@@ -6700,3 +6897,171 @@ function samlEsc(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+// ── Docs tab ─────────────────────────────────────────────────────────────────
+// Fetches document list and content from GET /docs/list and GET /docs/{slug}.
+// Renders structured blocks (headings, paragraphs, list items, code, tables)
+// as readable HTML inside the bottom panel.
+
+(function () {
+  let _docsLoaded = false;         // nav list already fetched
+  let _currentSlug = null;         // currently displayed doc
+
+  const navList    = $('#docs-nav-list');
+  const welcome    = $('#docs-welcome');
+  const article    = $('#docs-article');
+  const catEl      = $('#docs-article-category');
+  const titleEl    = $('#docs-article-title');
+  const descEl     = $('#docs-article-desc');
+  const bodyEl     = $('#docs-article-body');
+
+  // Expose init so switchTab can call it
+  window.docsInit = function () {
+    if (_docsLoaded) return;
+    _docsLoaded = true;
+    _loadNavList();
+  };
+
+  async function _loadNavList() {
+    try {
+      const res  = await fetch('/docs/list');
+      const data = await res.json();
+      if (!data.ok) throw new Error('bad response');
+      _renderNav(data.docs);
+    } catch (e) {
+      navList.innerHTML = '<div class="docs-nav-error">Could not load documents.</div>';
+    }
+  }
+
+  function _renderNav(docs) {
+    // Group by category
+    const groups = {};
+    docs.forEach(d => {
+      if (!groups[d.category]) groups[d.category] = [];
+      groups[d.category].push(d);
+    });
+
+    let html = '';
+    Object.keys(groups).forEach(cat => {
+      html += `<div class="docs-nav-group">`;
+      html += `<div class="docs-nav-group-label">${_esc(cat)}</div>`;
+      groups[cat].forEach(d => {
+        const unavail = d.available === false ? ' docs-nav-unavailable' : '';
+        html += `<button class="docs-nav-item${unavail}" data-slug="${_esc(d.slug)}"
+                   title="${_esc(d.description)}">${_esc(d.title)}</button>`;
+      });
+      html += `</div>`;
+    });
+    navList.innerHTML = html;
+
+    navList.querySelectorAll('.docs-nav-item:not(.docs-nav-unavailable)').forEach(btn => {
+      btn.addEventListener('click', () => _loadDoc(btn.dataset.slug));
+    });
+  }
+
+  async function _loadDoc(slug) {
+    if (_currentSlug === slug) return;
+    _currentSlug = slug;
+
+    // Mark active nav item
+    navList.querySelectorAll('.docs-nav-item').forEach(b => {
+      b.classList.toggle('active', b.dataset.slug === slug);
+    });
+
+    // Show loading state
+    welcome.classList.add('hidden');
+    article.classList.remove('hidden');
+    titleEl.textContent = 'Loading…';
+    descEl.textContent  = '';
+    catEl.textContent   = '';
+    bodyEl.innerHTML    = '<div class="docs-loading-spinner">Loading document…</div>';
+
+    try {
+      const res  = await fetch(`/docs/${encodeURIComponent(slug)}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.detail || 'fetch failed');
+      _renderDoc(data.doc);
+    } catch (e) {
+      bodyEl.innerHTML = `<div class="docs-error">Failed to load document: ${_esc(String(e))}</div>`;
+    }
+  }
+
+  function _renderDoc(doc) {
+    catEl.textContent   = doc.category || '';
+    titleEl.textContent = doc.title    || '';
+    descEl.textContent  = doc.description || '';
+
+    let html = '';
+    let listOpen = false;
+
+    (doc.blocks || []).forEach(block => {
+      // Close any open list before non-list items
+      if (block.type !== 'list_item' && listOpen) {
+        html += '</ul>';
+        listOpen = false;
+      }
+
+      switch (block.type) {
+        case 'heading1':
+          html += `<h2 class="docs-h1">${_esc(block.text)}</h2>`;
+          break;
+        case 'heading2':
+          html += `<h3 class="docs-h2">${_esc(block.text)}</h3>`;
+          break;
+        case 'heading3':
+          html += `<h4 class="docs-h3">${_esc(block.text)}</h4>`;
+          break;
+        case 'list_item':
+          if (!listOpen) { html += '<ul class="docs-list">'; listOpen = true; }
+          html += `<li>${_inlineMarkdown(_esc(block.text))}</li>`;
+          break;
+        case 'code':
+          html += `<pre class="docs-code"><code>${_esc(block.text)}</code></pre>`;
+          break;
+        case 'table':
+          html += _renderTable(block.text);
+          break;
+        default: // paragraph
+          html += `<p class="docs-p">${_inlineMarkdown(_esc(block.text))}</p>`;
+      }
+    });
+
+    if (listOpen) html += '</ul>';
+    bodyEl.innerHTML = html;
+  }
+
+  function _renderTable(text) {
+    const rows = text.split('\n').filter(r => r.trim());
+    if (!rows.length) return '';
+    let html = '<table class="docs-table"><thead><tr>';
+    const headers = rows[0].split(' | ');
+    headers.forEach(h => { html += `<th>${_esc(h.trim())}</th>`; });
+    html += '</tr></thead><tbody>';
+    rows.slice(1).forEach(row => {
+      html += '<tr>';
+      row.split(' | ').forEach(cell => { html += `<td>${_inlineMarkdown(_esc(cell.trim()))}</td>`; });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    return html;
+  }
+
+  // Apply inline markdown: **bold**, `code`, _italic_
+  function _inlineMarkdown(text) {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`]+)`/g, '<code class="docs-inline-code">$1</code>')
+      .replace(/\[CHANGED\]/g, '<span class="docs-badge docs-badge-changed">CHANGED</span>')
+      .replace(/\[ADDED\]/g, '<span class="docs-badge docs-badge-added">ADDED</span>')
+      .replace(/\[REMOVED\]/g, '<span class="docs-badge docs-badge-removed">REMOVED</span>');
+  }
+
+  function _esc(str) {
+    return String(str != null ? str : '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+})();

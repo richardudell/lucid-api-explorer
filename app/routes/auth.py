@@ -332,7 +332,7 @@ async def _run_oauth_callback(
         label="Authorization code received",
         detail=(
             f"Lucid redirected back to the {cfg.flow_name} callback with a one-time authorization code. "
-            "This code is short-lived (typically 60s) and can only be used once. "
+            "This code is short-lived (valid for approximately 5 minutes) and can only be used once. "
             "It must be exchanged for an access token before it expires."
         ),
         status="ok",
