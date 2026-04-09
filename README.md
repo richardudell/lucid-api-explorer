@@ -407,22 +407,19 @@ python main.py
 
 Open [http://localhost:8000](http://localhost:8000) in your browser.
 
-### Quickstart (returning users)
+### Returning to the app (already set up)
 
-If your machine is already set up, this is enough:
+If you've already done the full setup above and just want to get back in, run these three commands from the repo folder:
 
 ```bash
-git clone https://github.com/richardudell/lucid-api-explorer.git
-cd lucid-api-explorer
-pyenv local 3.12.9
-python -m venv .venv
+git pull
 source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-cp .env.example .env
-python scripts/doctor.py
 python main.py
 ```
+
+Then open [http://localhost:8000](http://localhost:8000).
+
+That's it. `git pull` picks up any new changes, `source .venv/bin/activate` restores the Python environment for this session, and `python main.py` starts the server.
 
 ### Demo mode (no real secrets)
 
