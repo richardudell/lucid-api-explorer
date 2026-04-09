@@ -53,6 +53,7 @@ from app.config import (
     LUCID_SCIM_TOKEN,
     LUCID_OAUTH_CONFIGURED,
     SCIM_CONFIGURED,
+    PKCE_ENABLED,
 )
 from app.security import require_local_request_dep
 
@@ -189,19 +190,25 @@ def _run_oauth_initiate(cfg: OAuthFlowConfig, scopes: str | None) -> RedirectRes
     cfg.set_oauth_state(oauth_state)
     cfg.set_oauth_state_created_at(datetime.utcnow())
 
-    pkce_verifier, pkce_challenge = _generate_pkce_pair()
-    cfg.set_pkce_verifier(pkce_verifier)
+    if PKCE_ENABLED:
+        pkce_verifier, pkce_challenge = _generate_pkce_pair()
+        cfg.set_pkce_verifier(pkce_verifier)
+    else:
+        pkce_challenge = None
 
     _append_step(
         cfg.log_list,
         step=1,
         label="State token generated",
         detail=(
-                "A cryptographically random value created with secrets.token_urlsafe(32). "
-                "Stored in server memory. Lucid will echo it back on the callback — "
-                "if it doesn't match, we reject the request as a potential CSRF attack. "
-                "A PKCE verifier/challenge pair is also generated for code-exchange binding."
-            ),
+            "A cryptographically random value created with secrets.token_urlsafe(32). "
+            "Stored in server memory. Lucid will echo it back on the callback — "
+            "if it doesn't match, we reject the request as a potential CSRF attack."
+            + (
+                " A PKCE verifier/challenge pair is also generated for code-exchange binding."
+                if PKCE_ENABLED else ""
+            )
+        ),
         status="ok",
         request=None,
         response={"state_token": oauth_state[:8] + "••••••••  (truncated for display)"},
@@ -214,16 +221,30 @@ def _run_oauth_initiate(cfg: OAuthFlowConfig, scopes: str | None) -> RedirectRes
         scope_list = cfg.default_scopes
     scope_str = " ".join(scope_list)
 
-    base_params = urlencode({
+    auth_url_params: dict = {
         "client_id": LUCID_CLIENT_ID,
         "redirect_uri": cfg.redirect_uri,
         "response_type": "code",
         "state": oauth_state,
-        "code_challenge": pkce_challenge,
-        "code_challenge_method": "S256",
-    })
+    }
+    if PKCE_ENABLED and pkce_challenge:
+        auth_url_params["code_challenge"] = pkce_challenge
+        auth_url_params["code_challenge_method"] = "S256"
+
+    base_params = urlencode(auth_url_params)
     scope_param = "scope=" + urlquote(scope_str, safe=":")
     authorization_url = f"{cfg.auth_url}?{base_params}&{scope_param}"
+
+    log_params: dict = {
+        "client_id": LUCID_CLIENT_ID,
+        "redirect_uri": cfg.redirect_uri,
+        "response_type": "code",
+        "scope": scope_str,
+        "state": oauth_state[:8] + "•••• (truncated)",
+    }
+    if PKCE_ENABLED:
+        log_params["code_challenge_method"] = "S256"
+        log_params["code_challenge"] = "•••• (S256 hash of verifier)"
 
     _append_step(
         cfg.log_list,
@@ -234,19 +255,16 @@ def _run_oauth_initiate(cfg: OAuthFlowConfig, scopes: str | None) -> RedirectRes
             f"Scopes requested: {scope_str}. "
             "response_type=code tells Lucid we want an Authorization Code, not an implicit token. "
             "The redirect_uri must match exactly what is registered in the Developer Portal."
+            + (
+                " code_challenge binds this request to the code_verifier sent at token exchange (PKCE)."
+                if PKCE_ENABLED else ""
+            )
         ),
         status="pending",
         request={
             "method": "GET (browser redirect)",
             "url": authorization_url,
-            "params": {
-                "client_id": LUCID_CLIENT_ID,
-                "redirect_uri": cfg.redirect_uri,
-                "response_type": "code",
-                "scope": scope_str,
-                "state": oauth_state[:8] + "•••• (truncated)",
-                "code_challenge_method": "S256",
-            },
+            "params": log_params,
         },
         response=None,
     )
@@ -274,7 +292,7 @@ async def _run_oauth_callback(
             cfg.log_list,
             step=3,
             label=f"Lucid returned an error: {error}",
-            detail=_explain_oauth_error(error, error_description),
+            detail=_explain_oauth_error(error, error_description, cfg.flow_name),
             status="error",
             request=None,
             response={"error": error, "error_description": error_description or ""},
@@ -284,6 +302,12 @@ async def _run_oauth_callback(
 
     # Step 3b: No code returned
     if not code:
+        account_note = (
+            " For the account token flow, make sure http://localhost:8000/callback-account "
+            "is registered as a separate Redirect URI in the Lucid Developer Portal "
+            "(in addition to /callback — they are two distinct entries)."
+            if cfg.flow_name == "account" else ""
+        )
         _append_step(
             cfg.log_list,
             step=3,
@@ -292,6 +316,7 @@ async def _run_oauth_callback(
                 f"Lucid redirected back to the {cfg.flow_name} callback without a code parameter. "
                 "This usually means the user denied consent, or the redirect_uri "
                 "registered in the Developer Portal doesn't match the one in .env."
+                + account_note
             ),
             status="error",
             request=None,
@@ -376,27 +401,38 @@ async def _run_oauth_callback(
     )
 
     # Step 5: Exchange authorization code for access token (server-to-server)
-    pkce_verifier = cfg.get_pkce_verifier()
-    if not pkce_verifier:
-        _append_step(
-            cfg.log_list,
-            step=5,
-            label="Missing PKCE verifier — request rejected",
-            detail="PKCE verifier was missing from server state. Start a new OAuth flow.",
-            status="error",
-            request=None,
-            response={"error": "missing_pkce_verifier"},
-        )
-        return err_redirect("missing_pkce_verifier")
-
-    token_request_body = {
+    token_request_body: dict = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": cfg.redirect_uri,
         "client_id": LUCID_CLIENT_ID,
         "client_secret": LUCID_CLIENT_SECRET,
-        "code_verifier": pkce_verifier,
     }
+
+    if PKCE_ENABLED:
+        pkce_verifier = cfg.get_pkce_verifier()
+        if not pkce_verifier:
+            _append_step(
+                cfg.log_list,
+                step=5,
+                label="Missing PKCE verifier — request rejected",
+                detail="PKCE verifier was missing from server state. Start a new OAuth flow.",
+                status="error",
+                request=None,
+                response={"error": "missing_pkce_verifier"},
+            )
+            return err_redirect("missing_pkce_verifier")
+        token_request_body["code_verifier"] = pkce_verifier
+
+    log_body: dict = {
+        "grant_type": "authorization_code",
+        "code": code[:8] + "•••• (truncated)",
+        "redirect_uri": cfg.redirect_uri,
+        "client_id": LUCID_CLIENT_ID,
+        "client_secret": "••••••••••••  (never sent to browser)",
+    }
+    if PKCE_ENABLED:
+        log_body["code_verifier"] = "••••••••••••  (PKCE verifier, never sent to browser)"
 
     _append_step(
         cfg.log_list,
@@ -407,6 +443,11 @@ async def _run_oauth_callback(
             "The client_secret is included in this request — it is sent directly "
             "from the backend server to Lucid's servers and never touches the browser. "
             "This is the key security property of the Authorization Code flow."
+            + (
+                " The code_verifier proves this token request came from the same party "
+                "that initiated the authorization request (PKCE binding)."
+                if PKCE_ENABLED else ""
+            )
         ),
         status="pending",
         request={
@@ -416,14 +457,7 @@ async def _run_oauth_callback(
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
             },
-            "body": {
-                "grant_type": "authorization_code",
-                "code": code[:8] + "•••• (truncated)",
-                "redirect_uri": cfg.redirect_uri,
-                "client_id": LUCID_CLIENT_ID,
-                "client_secret": "••••••••••••  (never sent to browser)",
-                "code_verifier": "••••••••••••  (PKCE verifier, never sent to browser)",
-            },
+            "body": log_body,
         },
         response=None,
     )
@@ -431,6 +465,14 @@ async def _run_oauth_callback(
     token_data, raw_response = await _exchange_code_for_token(token_request_body)
 
     if token_data is None:
+        account_note = (
+            " For the account token flow, also confirm that "
+            "http://localhost:8000/callback-account is registered as a separate "
+            "Redirect URI in the Lucid Developer Portal (distinct from /callback), "
+            "and that LUCID_ACCOUNT_OAUTH_SCOPES contains only scopes your OAuth "
+            "client is approved for."
+            if cfg.flow_name == "account" else ""
+        )
         _append_step(
             cfg.log_list,
             step=5,
@@ -439,12 +481,14 @@ async def _run_oauth_callback(
                 "The POST to Lucid's token endpoint failed. "
                 "Check that LUCID_CLIENT_ID, LUCID_CLIENT_SECRET, and the redirect_uri "
                 "in .env exactly match what is registered in the Lucid Developer Portal."
+                + account_note
             ),
             status="error",
             request=None,
             response=raw_response or {"error": "token_exchange_failed"},
         )
-        cfg.set_pkce_verifier(None)
+        if PKCE_ENABLED:
+            cfg.set_pkce_verifier(None)
         return err_redirect("token_exchange_failed")
 
     if not isinstance(token_data.get("access_token"), str) or not token_data.get("access_token"):
@@ -531,8 +575,16 @@ async def oauth_callback(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _explain_oauth_error(error: str, description: str | None) -> str:
+def _explain_oauth_error(error: str, description: str | None, flow_name: str = "user") -> str:
     """Return a plain-English explanation of a Lucid OAuth error code."""
+    redirect_uri_label = "LUCID_ACCOUNT_REDIRECT_URI" if flow_name == "account" else "LUCID_REDIRECT_URI"
+    callback_path = "/callback-account" if flow_name == "account" else "/callback"
+    account_portal_note = (
+        f" For the account token flow, {callback_path} must be registered as its own "
+        "separate Redirect URI entry in the Developer Portal — it is not covered by /callback."
+        if flow_name == "account" else ""
+    )
+
     explanations = {
         "invalid_scope": (
             "Lucid rejected the requested scopes. The scope values in LUCID_OAUTH_SCOPES "
@@ -550,9 +602,10 @@ def _explain_oauth_error(error: str, description: str | None) -> str:
             "matches exactly what is shown in your Lucid Developer Portal app settings."
         ),
         "invalid_request": (
-            "The authorization request was malformed. Check that LUCID_REDIRECT_URI in .env "
+            f"The authorization request was malformed. Check that {redirect_uri_label} in .env "
             "is registered exactly in the Lucid Developer Portal — including http vs https, "
             "port number, and no trailing slash."
+            + account_portal_note
         ),
     }
     base = explanations.get(error, f"Lucid returned error code '{error}'.")

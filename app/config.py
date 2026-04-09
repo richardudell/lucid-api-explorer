@@ -115,6 +115,15 @@ LUCID_OAUTH_CONFIGURED: bool = (
 SCIM_CONFIGURED: bool = not _is_placeholder(LUCID_SCIM_TOKEN)
 ANTHROPIC_CONFIGURED: bool = not _is_placeholder(ANTHROPIC_API_KEY)
 
+# ── PKCE toggle ───────────────────────────────────────────────────────────────
+# When False (default), the OAuth flows run as plain Authorization Code without
+# PKCE. This is the correct mode for training and demos — PKCE adds security
+# value in public/mobile clients but is not required for a confidential server-
+# side client, and the extra parameters distract from the core flow concepts.
+#
+# Set PKCE_ENABLED=true in .env to re-enable PKCE (code_challenge + code_verifier).
+PKCE_ENABLED: bool = _truthy(os.getenv("PKCE_ENABLED", "false"))
+
 # ── App settings ─────────────────────────────────────────────────────────────
 PORT: int = int(os.getenv("PORT", "8000"))
 HOST: str = os.getenv("HOST", "127.0.0.1").strip() or "127.0.0.1"
