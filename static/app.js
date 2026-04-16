@@ -6426,6 +6426,15 @@ function simShowPauseOverlay(step, index, nextCb) {
   // Cancel any in-flight timer so the simulation freezes
   if (simFlightTimer) { clearTimeout(simFlightTimer); simFlightTimer = null; }
 
+  // Freeze any in-flight CSS packet animations
+  document.querySelectorAll('.sim-packet').forEach(p => {
+    if (p.classList.contains('sim-packet-visible')) {
+      const rect = p.getBoundingClientRect();
+      const parent = p.offsetParent ? p.offsetParent.getBoundingClientRect() : { left: 0, top: 0 };
+      p.style.animationPlayState = 'paused';
+    }
+  });
+
   const overlay   = document.getElementById('sim-pause-overlay');
   const labelEl   = document.getElementById('sim-pause-step-label');
   const titleEl   = document.getElementById('sim-pause-step-title');
@@ -6457,6 +6466,8 @@ function simHidePauseOverlay() {
   const pauseBtn = document.getElementById('sim-hud-pause');
   if (overlay)  overlay.classList.remove('sim-pause-visible');
   if (pauseBtn) { pauseBtn.textContent = '⏸ Pause'; pauseBtn.classList.remove('sim-paused'); }
+  // Unfreeze any paused packet animations
+  document.querySelectorAll('.sim-packet').forEach(p => { p.style.animationPlayState = ''; });
 }
 
 function simTogglePause() {
