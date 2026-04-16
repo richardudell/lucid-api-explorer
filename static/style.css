@@ -5003,11 +5003,19 @@ body.panel-expanded #workspace {
    HTTP METHODS GAME
    ══════════════════════════════════════════════════════════════════════════════ */
 
+/* Override .tab-pane defaults — hm-pane handles its own layout */
+#tab-http-methods {
+  padding: 0;
+  overflow: hidden;
+}
+
 .hm-pane {
   display: flex;
   flex-direction: row;
   overflow: hidden;
+  width: 100%;
   height: 100%;
+  min-height: 0;
   background: var(--panel-dark);
 }
 
@@ -5015,6 +5023,7 @@ body.panel-expanded #workspace {
 #hm-sidebar {
   width: 150px;
   flex-shrink: 0;
+  min-height: 0;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -5100,6 +5109,8 @@ body.panel-expanded #workspace {
 /* ── Right main area ───────────────────────────────────────────────────────── */
 #hm-main {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
