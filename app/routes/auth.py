@@ -741,6 +741,9 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "folder:readonly": "List folders and read their contents",
     "folder": "Create, rename, trash, and restore folders",
     "offline_access": "Receive a refresh token — allows renewing access without re-authenticating",
+    "account.team:readonly": "Read team membership and structure — requires elevated account entitlement.",
+    "account.team": "Read and manage teams — requires elevated account entitlement.",
+    "account.auditlog:readonly": "Read account audit logs — requires elevated account entitlement.",
 }
 
 
@@ -751,6 +754,11 @@ ENTERPRISE_SCOPES: set[str] = {
     "lucidchart.document.content:admin.readonly",
     "lucidspark.document.content:admin.readonly",
     "lucidscale.document.content:admin.readonly",
+    # These require elevated account entitlements — standard OAuth clients
+    # get invalid_scope from Lucid if they are included in the scope request.
+    "account.team",
+    "account.team:readonly",
+    "account.auditlog:readonly",
 }
 
 
