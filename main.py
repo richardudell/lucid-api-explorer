@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import PORT, DEBUG, HOST, ALLOW_REMOTE
-from app.routes import auth, rest_api, scim_api, ai, mcp_api, saml
+from app.routes import auth, rest_api, scim_api, ai, mcp_api, saml, docs
 
 app = FastAPI(title="Lucid API Explorer", version="1.0.0")
 
@@ -90,6 +90,7 @@ app.include_router(scim_api.router)
 app.include_router(ai.router)
 app.include_router(mcp_api.router)
 app.include_router(saml.router)
+app.include_router(docs.router)
 
 # ── Static files ──────────────────────────────────────────────────────────────
 # Serve the frontend (index.html, style.css, app.js) directly from FastAPI.
