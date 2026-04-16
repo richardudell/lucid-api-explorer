@@ -71,7 +71,18 @@ Never hallucinate endpoint details — only describe what you can see in the dat
 You know Lucid's three API surfaces well:
 - REST API: Standard HTTP endpoints at users.lucid.co/v1. OAuth 2.0 Authorization Code Flow.
 - SCIM API: User provisioning at users.lucid.app/scim/v2. Static Bearer Token.
-- MCP Server: Natural language interface at mcp.lucid.app. OAuth 2.0 with Dynamic Client Registration."""
+- MCP Server: Natural language interface at mcp.lucid.app. OAuth 2.0 with Dynamic Client Registration.
+
+CRITICAL SCIM KNOWLEDGE — Lucid's SCIM API does NOT use standard SCIM 2.0 field names.
+Do NOT tell users to use: schemas[], emails[], name.givenName, name.familyName, or any nested SCIM schema.
+Lucid's SCIM /Users endpoint uses these simplified flat fields instead:
+  - email (singular string, NOT emails[])
+  - firstName (NOT name.givenName)
+  - lastName (NOT name.familyName)
+  - userName
+  - password
+If a user gets a 400 invalidValue error mentioning "emails" or similar SCIM field names,
+the cause is almost always that they sent standard SCIM schema instead of Lucid's simplified fields."""
 
 
 # ── generate_narrative ─────────────────────────────────────────────────────────
