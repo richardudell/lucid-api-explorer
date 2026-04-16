@@ -1361,11 +1361,12 @@ const mcpAuthBanner     = $('#mcp-auth-banner');
 
 // Bottom panel
 const panelTabs     = $$('.panel-tab');
-const tabTerminal   = $('#tab-terminal');
-const tabCode       = $('#tab-code');
-const tabNarrative  = $('#tab-narrative');
-const tabSimulate   = $('#tab-simulate');
-const tabDocs       = $('#tab-docs');
+const tabTerminal    = $('#tab-terminal');
+const tabCode        = $('#tab-code');
+const tabNarrative   = $('#tab-narrative');
+const tabSimulate    = $('#tab-simulate');
+const tabHttpMethods = $('#tab-http-methods');
+const tabDocs        = $('#tab-docs');
 const terminalOutput = $('#terminal-output');
 const curlOutput    = $('#curl-output');
 const pythonOutput  = $('#python-output');
@@ -4117,13 +4118,19 @@ panelTabs.forEach(tab => {
 
 function switchTab(name) {
   panelTabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-  [tabTerminal, tabCode, tabNarrative, tabSimulate, tabDocs].forEach(pane => {
+  [tabTerminal, tabCode, tabNarrative, tabSimulate, tabHttpMethods, tabDocs].forEach(pane => {
     if (!pane) return;
     pane.classList.toggle('active', pane.id === `tab-${name}`);
   });
   if (name === 'simulate' && typeof window.lucidSetBottomPanelMode === 'function') {
     window.lucidSetBottomPanelMode('expanded');
     simLayoutTriangleTracks();
+  }
+  if (name === 'http-methods') {
+    if (typeof window.lucidSetBottomPanelMode === 'function') {
+      window.lucidSetBottomPanelMode('expanded');
+    }
+    initHttpMethods();
   }
   if (name === 'docs') {
     docsInit();
@@ -5321,8 +5328,8 @@ const SIM_SAML_DEFENDED = {
 const SIM_SCENARIOS = {
   oauth: {
     id: 'oauth',
-    title: 'OAuth Packet Intercept',
-    subtitle: 'You are the attacker. Click glowing packets in flight to intercept them. Toggle PKCE to watch the same attacks get blocked.',
+    title: 'OAuth Authorization Code Flow',
+    subtitle: 'Watch each step of the OAuth flow animate in real time. Hit ⏸ Pause or click a glowing packet to pause and read what is happening at each step. Toggle PKCE to see how it changes the flow.',
     actorServerLabel: 'Your Server',
     actorServerSub: 'this app',
     actorLucidLabel: 'Lucid',
@@ -5351,8 +5358,8 @@ const SIM_SCENARIOS = {
   },
   saml: {
     id: 'saml',
-    title: 'SAML Assertion Intercept',
-    subtitle: 'You are the attacker. Intercept SAML packets in flight. Toggle strict validation to see replay and tamper attacks get blocked.',
+    title: 'SAML SSO Flow',
+    subtitle: 'Watch the SAML SSO flow step by step. Hit ⏸ Pause or click a glowing packet to pause and read what is happening. Toggle Strict checks to see how validation defends against interception.',
     actorServerLabel: 'Your IdP',
     actorServerSub: 'this app',
     actorLucidLabel: 'Lucid SP',
@@ -5380,12 +5387,423 @@ const SIM_SCENARIOS = {
   },
 };
 
+// ══════════════════════════════════════════════════════════════════════════════
+// HTTP METHODS GAME
+// Interactive explorer for GET / POST / PUT / PATCH / DELETE —
+// shows animated request/response, idempotency concept, and a send exercise.
+// ══════════════════════════════════════════════════════════════════════════════
+
+const HM_METHODS = {
+  GET: {
+    color: 'hm-method-get',
+    title: 'Retrieve a resource',
+    subtitle: 'Reads data — never modifies anything on the server.',
+    idempotent: true,
+    safe: true,
+    hasBody: false,
+    reqLabel: 'GET',
+    resLabel: '200 OK',
+    request:
+`GET /users/12345 HTTP/1.1
+Host: api.lucid.co
+Authorization: Bearer <access_token>
+Accept: application/json`,
+    response:
+`HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "userId": "12345",
+  "email": "alex@example.com",
+  "name": "Alex Kim"
+}`,
+    resourceStateInit: '{ userId: "12345" }',
+    resourceStateAfter: '{ userId: "12345" }',
+    resourceChangeType: 'unchanged',
+    explanation:
+      '<strong>GET</strong> is read-only. You can call it a thousand times and the server state stays exactly the same — ' +
+      'that\'s what <strong>idempotent</strong> means. It\'s also <strong>safe</strong>: no side effects at all. ' +
+      'Use GET whenever you want to look something up without touching it.',
+    exerciseTitle: 'Try it — send the same request multiple times',
+    exerciseResultFn(n) {
+      return {
+        label: '200 OK', labelClass: 'hm-result-label-2xx',
+        text: `User record returned (${n} requests, same response every time)`,
+        textClass: n > 1 ? 'hm-result-same' : '',
+      };
+    },
+    lesson: '✓ Idempotent — the response is identical every time. Safe to retry after a network error.',
+    lessonClass: '',
+  },
+
+  POST: {
+    color: 'hm-method-post',
+    title: 'Create a new resource',
+    subtitle: 'Sends data to create something new — each call may create a duplicate.',
+    idempotent: false,
+    safe: false,
+    hasBody: true,
+    reqLabel: 'POST',
+    resLabel: '201 Created',
+    request:
+`POST /users HTTP/1.1
+Host: api.lucid.co
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "email": "new.user@example.com",
+  "name": "New User"
+}`,
+    response:
+`HTTP/1.1 201 Created
+Content-Type: application/json
+Location: /users/67890
+
+{
+  "userId": "67890",
+  "email": "new.user@example.com"
+}`,
+    resourceStateInit: '(no user yet)',
+    resourceStateAfter: '{ userId: "67890" }',
+    resourceChangeType: 'created',
+    explanation:
+      '<strong>POST</strong> creates a new resource. Each call creates a <em>new</em> item — ' +
+      'two identical POSTs can create two separate records. That\'s why POST is <strong>not idempotent</strong>. ' +
+      'The server assigns a new ID every time. Use a request body to send the data.',
+    exerciseTitle: 'Try it — what happens when you POST twice?',
+    exerciseResultFn(n) {
+      if (n === 1) return { label: '201 Created', labelClass: 'hm-result-label-2xx', text: 'User #67890 created', textClass: '' };
+      return { label: '201 Created', labelClass: 'hm-result-label-2xx', text: `User #${67890 + n - 1} created — a brand new duplicate!`, textClass: 'hm-result-changed' };
+    },
+    lesson: '⚠ Not idempotent — each call creates a new record with a new ID. Retrying a failed POST may cause duplicates.',
+    lessonClass: 'lesson-warning',
+  },
+
+  PUT: {
+    color: 'hm-method-put',
+    title: 'Replace a resource entirely',
+    subtitle: 'Overwrites the full resource with the request body — idempotent.',
+    idempotent: true,
+    safe: false,
+    hasBody: true,
+    reqLabel: 'PUT',
+    resLabel: '200 OK',
+    request:
+`PUT /users/12345 HTTP/1.1
+Host: api.lucid.co
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "email": "alex@example.com",
+  "name": "Alex Kim (updated)",
+  "role": "admin"
+}`,
+    response:
+`HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "userId": "12345",
+  "email": "alex@example.com",
+  "name": "Alex Kim (updated)",
+  "role": "admin"
+}`,
+    resourceStateInit: '{ name: "Alex Kim" }',
+    resourceStateAfter: '{ name: "Alex Kim (updated)" }',
+    resourceChangeType: 'updated',
+    explanation:
+      '<strong>PUT</strong> replaces the <em>entire</em> resource with what you send. ' +
+      'Any fields you omit are removed. ' +
+      'Calling it twice with the same body leaves the server in the same state — so it\'s <strong>idempotent</strong>. ' +
+      'PUT is the right choice when you want a complete, authoritative replacement.',
+    exerciseTitle: 'Try it — send the full replacement multiple times',
+    exerciseResultFn(n) {
+      return {
+        label: '200 OK', labelClass: 'hm-result-label-2xx',
+        text: `User replaced${n > 1 ? ' again — same result' : ''}`,
+        textClass: n > 1 ? 'hm-result-same' : '',
+      };
+    },
+    lesson: '✓ Idempotent — sending the same PUT twice leaves the server in the same state. Safe to retry.',
+    lessonClass: '',
+  },
+
+  PATCH: {
+    color: 'hm-method-patch',
+    title: 'Partially update a resource',
+    subtitle: 'Modifies only the fields you specify — may not be idempotent.',
+    idempotent: false,
+    safe: false,
+    hasBody: true,
+    reqLabel: 'PATCH',
+    resLabel: '200 OK',
+    request:
+`PATCH /users/12345 HTTP/1.1
+Host: api.lucid.co
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Alex Kim (updated)"
+}`,
+    response:
+`HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "userId": "12345",
+  "email": "alex@example.com",
+  "name": "Alex Kim (updated)"
+}`,
+    resourceStateInit: '{ name: "Alex Kim" }',
+    resourceStateAfter: '{ name: "Alex Kim (updated)" }',
+    resourceChangeType: 'updated',
+    explanation:
+      '<strong>PATCH</strong> changes only the fields you send — other fields are untouched. ' +
+      'Unlike PUT, you don\'t need to resend the whole record. ' +
+      'PATCH <em>can</em> be non-idempotent if the patch is relative (e.g. "add 1 to score") — ' +
+      'sending it twice doubles the effect. Whether a specific PATCH is idempotent depends on the API design.',
+    exerciseTitle: 'Try it — send the same patch multiple times',
+    exerciseResultFn(n) {
+      return {
+        label: '200 OK', labelClass: 'hm-result-label-2xx',
+        text: `Name updated${n > 1 ? ' — same value applied again (idempotent this time)' : ''}`,
+        textClass: n > 1 ? 'hm-result-same' : '',
+      };
+    },
+    lesson: '⚠ PATCH idempotency depends on the operation. "Set name to X" is idempotent; "increment count" is not. Always check the API docs.',
+    lessonClass: 'lesson-warning',
+  },
+
+  DELETE: {
+    color: 'hm-method-delete',
+    title: 'Remove a resource',
+    subtitle: 'Deletes the resource — idempotent (deleting what\'s already gone succeeds).',
+    idempotent: true,
+    safe: false,
+    hasBody: false,
+    reqLabel: 'DELETE',
+    resLabel: '204 No Content',
+    request:
+`DELETE /users/12345 HTTP/1.1
+Host: api.lucid.co
+Authorization: Bearer <access_token>`,
+    response:
+`HTTP/1.1 204 No Content`,
+    resourceStateInit: '{ userId: "12345" }',
+    resourceStateAfter: '(deleted)',
+    resourceChangeType: 'deleted',
+    explanation:
+      '<strong>DELETE</strong> removes the resource. ' +
+      'It\'s <strong>idempotent</strong>: once the resource is gone, a second DELETE returns 404 — ' +
+      'but the end state (resource absent) is the same either way. ' +
+      'No request body is typically sent. Use with care — this cannot be undone.',
+    exerciseTitle: 'Try it — what happens when you delete twice?',
+    exerciseResultFn(n) {
+      if (n === 1) return { label: '204 No Content', labelClass: 'hm-result-label-2xx', text: 'User deleted successfully', textClass: '' };
+      return { label: '404 Not Found', labelClass: 'hm-result-label-4xx', text: 'Already deleted — resource is gone (same end state)', textClass: 'hm-result-same' };
+    },
+    lesson: '✓ Idempotent — the resource is absent after the first call. A second call returns 404 but doesn\'t change anything.',
+    lessonClass: '',
+  },
+};
+
+let _hmInitDone = false;
+let _hmSendCount = 0;
+let _hmCurrentMethod = 'GET';
+let _hmAnimTimer = null;
+
+function initHttpMethods() {
+  if (_hmInitDone) return;
+  _hmInitDone = true;
+
+  // Wire method buttons
+  document.querySelectorAll('.hm-method-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchHttpMethod(btn.dataset.method));
+  });
+
+  // Wire exercise buttons
+  const sendBtn  = document.getElementById('hm-btn-send');
+  const resetBtn = document.getElementById('hm-btn-reset');
+  if (sendBtn)  sendBtn.addEventListener('click', hmSend);
+  if (resetBtn) resetBtn.addEventListener('click', hmReset);
+
+  // Render initial state
+  switchHttpMethod('GET');
+}
+
+function switchHttpMethod(method) {
+  const data = HM_METHODS[method];
+  if (!data) return;
+  _hmCurrentMethod = method;
+  _hmSendCount = 0;
+
+  // Sidebar button active state
+  document.querySelectorAll('.hm-method-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.method === method);
+  });
+
+  // Header badge
+  const badge = document.getElementById('hm-method-badge');
+  if (badge) {
+    badge.textContent = method;
+    badge.className = `hm-method-badge-large ${data.color}`;
+  }
+  const titleEl = document.getElementById('hm-title');
+  const subEl   = document.getElementById('hm-subtitle');
+  if (titleEl) titleEl.textContent = data.title;
+  if (subEl)   subEl.textContent   = data.subtitle;
+
+  // Concept badges
+  _hmSetBadge('idempotent', data.idempotent, 'Idempotent', 'Not idempotent');
+  _hmSetBadge('safe',       data.safe,       'Safe',       'Not safe');
+  _hmSetBodyBadge(data.hasBody);
+
+  // Code panels
+  const reqEl = document.getElementById('hm-request-block');
+  const resEl = document.getElementById('hm-response-block');
+  if (reqEl) reqEl.textContent = data.request;
+  if (resEl) resEl.textContent = data.response;
+
+  // Resource box
+  const resLabel = document.getElementById('hm-vis-resource-label');
+  const resState = document.getElementById('hm-vis-resource-state');
+  if (resLabel) resLabel.textContent = 'User record';
+  if (resState) { resState.textContent = data.resourceStateInit; resState.className = 'hm-res-unchanged'; }
+
+  // Explanation
+  const explEl = document.getElementById('hm-explanation');
+  if (explEl) explEl.innerHTML = data.explanation;
+
+  // Exercise
+  const exTitleEl = document.getElementById('hm-exercise-title');
+  if (exTitleEl) exTitleEl.textContent = data.exerciseTitle;
+  const resultEl = document.getElementById('hm-exercise-result');
+  const lessonEl = document.getElementById('hm-exercise-lesson');
+  if (resultEl) resultEl.innerHTML = '';
+  if (lessonEl) { lessonEl.textContent = ''; lessonEl.classList.add('hidden'); lessonEl.className = 'hidden'; }
+  const countEl = document.getElementById('hm-send-count');
+  if (countEl) countEl.textContent = '';
+
+  // Cancel any in-flight animation
+  if (_hmAnimTimer) { clearTimeout(_hmAnimTimer); _hmAnimTimer = null; }
+  _hmHidePackets();
+}
+
+function _hmSetBadge(id, yes, labelYes, labelNo) {
+  const el    = document.getElementById(`hm-badge-${id}`);
+  const label = document.getElementById(`hm-badge-${id}-label`);
+  if (!el) return;
+  el.className    = `hm-badge ${yes ? 'hm-badge-yes' : 'hm-badge-no'}`;
+  if (label) label.textContent = yes ? labelYes : labelNo;
+}
+
+function _hmSetBodyBadge(hasBody) {
+  const el    = document.getElementById('hm-badge-body');
+  const label = document.getElementById('hm-badge-body-label');
+  if (!el) return;
+  el.className    = `hm-badge ${hasBody ? 'hm-badge-yes' : 'hm-badge-neutral'}`;
+  if (label) label.textContent = hasBody ? 'Has body' : 'No body';
+}
+
+function _hmHidePackets() {
+  const req = document.getElementById('hm-vis-request-packet');
+  const res = document.getElementById('hm-vis-response-packet');
+  if (req) { req.className = 'hm-vis-packet hm-vis-packet-req hidden'; req.style.cssText = ''; }
+  if (res) { res.className = 'hm-vis-packet hm-vis-packet-res hidden'; res.style.cssText = ''; }
+}
+
+function _hmAnimateExchange(callback) {
+  const data = HM_METHODS[_hmCurrentMethod];
+  const FLIGHT_MS = 900;
+  const req = document.getElementById('hm-vis-request-packet');
+  const res = document.getElementById('hm-vis-response-packet');
+  if (!req || !res) { if (callback) callback(); return; }
+
+  // Request packet
+  req.textContent = data.reqLabel;
+  req.style.setProperty('--hm-flight-ms', FLIGHT_MS + 'ms');
+  req.className = 'hm-vis-packet hm-vis-packet-req hm-anim-req';
+
+  _hmAnimTimer = setTimeout(() => {
+    // Flash server resource state
+    const resState = document.getElementById('hm-vis-resource-state');
+    if (resState) {
+      resState.textContent = data.resourceStateAfter;
+      resState.className = `hm-res-${data.resourceChangeType} hm-res-flash`;
+    }
+    // Response packet
+    res.textContent = data.resLabel;
+    res.style.setProperty('--hm-flight-ms', FLIGHT_MS + 'ms');
+    res.className = 'hm-vis-packet hm-vis-packet-res hm-anim-res';
+
+    _hmAnimTimer = setTimeout(() => {
+      _hmHidePackets();
+      _hmAnimTimer = null;
+      if (callback) callback();
+    }, FLIGHT_MS + 100);
+  }, FLIGHT_MS + 100);
+}
+
+function hmSend() {
+  const data = HM_METHODS[_hmCurrentMethod];
+  _hmSendCount++;
+  const n = _hmSendCount;
+
+  _hmAnimateExchange(() => {
+    const result = data.exerciseResultFn(n);
+    const resultEl = document.getElementById('hm-exercise-result');
+    if (resultEl) {
+      const line = document.createElement('div');
+      line.className = 'hm-result-line';
+      line.innerHTML =
+        `<span class="hm-result-label ${result.labelClass}">${result.label}</span>` +
+        `<span class="hm-result-text ${result.textClass || ''}">#${n}: ${result.text}</span>`;
+      resultEl.appendChild(line);
+      resultEl.scrollTop = resultEl.scrollHeight;
+    }
+    const countEl = document.getElementById('hm-send-count');
+    if (countEl) countEl.textContent = `${n} request${n !== 1 ? 's' : ''} sent`;
+
+    // Show lesson after 2 sends
+    if (n >= 2) {
+      const lessonEl = document.getElementById('hm-exercise-lesson');
+      if (lessonEl) {
+        lessonEl.textContent = data.lesson;
+        lessonEl.className = `hm-exercise-lesson ${data.lessonClass || ''}`;
+      }
+    }
+  });
+}
+
+function hmReset() {
+  _hmSendCount = 0;
+  const resultEl = document.getElementById('hm-exercise-result');
+  const lessonEl = document.getElementById('hm-exercise-lesson');
+  const countEl  = document.getElementById('hm-send-count');
+  if (resultEl) resultEl.innerHTML = '';
+  if (lessonEl) { lessonEl.textContent = ''; lessonEl.className = 'hidden'; }
+  if (countEl)  countEl.textContent = '';
+  // Reset resource state
+  const data = HM_METHODS[_hmCurrentMethod];
+  const resState = document.getElementById('hm-vis-resource-state');
+  if (resState) { resState.textContent = data.resourceStateInit; resState.className = 'hm-res-unchanged'; }
+  if (_hmAnimTimer) { clearTimeout(_hmAnimTimer); _hmAnimTimer = null; }
+  _hmHidePackets();
+}
+
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let simPkceOn           = false;
 let simWaveIndex        = 0;
 let simFlightTimer      = null;
 let simLocked           = true;
 let simRunning          = false;
+let simPaused           = false;   // true while pause overlay is visible
+let simPausedAtIndex    = -1;      // step index frozen while paused
+let simPausedCallback   = null;    // continuation fn to call when user steps/resumes
 let simEverIntercepted  = false; // true only if user clicked at least one packet this run
 let simScenario         = 'oauth';
 const SIM_PACKET_WIDTH_PX = 116; // matches enlarged CSS packet size for consistent travel endpoints
@@ -5612,6 +6030,8 @@ function simSetScenario(nextScenario) {
   if (!SIM_SCENARIOS[nextScenario] || simScenario === nextScenario) return;
   simScenario = nextScenario;
   simPkceOn = false;
+  simHidePauseOverlay();
+  simPausedCallback = null;
   simCancelFlight();
   simClearActors();
   simApplyScenarioUi();
@@ -5627,6 +6047,8 @@ function simStartRun() {
   simWaveIndex       = 0;
   simRunning         = true;
   simEverIntercepted = false;
+  simHidePauseOverlay();           // clear any lingering pause from a previous run
+  simPausedCallback  = null;
   simSetOverlay('none');
   simClearActors();
   simRenderStepStrip();
@@ -5898,6 +6320,171 @@ function simEndMissed() {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
+// ── Pause overlay ─────────────────────────────────────────────────────────────
+
+// Rich per-step explanations shown in the pause overlay.
+// Each entry: { title, body, code? }
+// Indexed by [scenario][pkceOn][stepIndex].
+// Falls back to the step's .desc text if no entry found.
+function simPauseExplainStep(step, index) {
+  const n     = index + 1;
+  const total = simCurrentSteps().length;
+  const pk    = simPkceOn;
+
+  if (simScenario === 'oauth') {
+    const titles = [
+      'Generate secrets for this request',
+      'Server sends a 302 redirect to Lucid',
+      'Browser follows redirect to Lucid /authorize',
+      'User grants permission at Lucid',
+      '302 redirect delivers the authorization code',
+      'Browser delivers the code to your server via /callback',
+      'Server validates state and parses code',
+      'Server exchanges the code for an access_token (server-to-server)',
+      'Access token returned and stored',
+    ];
+    const bodies = pk ? [
+      'Your server generates two secrets: a random <strong>state</strong> token (CSRF protection) and a PKCE pair — a random <strong>code_verifier</strong> and its SHA-256 hash, the <strong>code_challenge</strong>. The verifier never leaves your server.',
+      'Your server sends the browser a 302 redirect to Lucid\'s /authorize endpoint. The URL includes your client_id, redirect_uri, code_challenge, and state. Lucid will tie the code it issues to this challenge.',
+      'The browser follows the redirect and sends a GET /authorize to Lucid. Lucid validates your client_id, redirect_uri, and records the code_challenge.',
+      'Lucid shows the user a consent screen listing the scopes your app requested. The user clicks "Allow" — Lucid generates a short-lived authorization code bound to the code_challenge.',
+      'Lucid redirects the browser back to your redirect_uri with <code>?code=AUTH_CODE&state=...</code>. The code is useless without the code_verifier — even if intercepted.',
+      'The browser performs a GET /callback to your server, delivering the code and state. Your server verifies the state matches what it generated in Step 1.',
+      'Your server checks state == stored state (CSRF guard), then parses the code out of the query string. The code is single-use and expires in ~5 minutes.',
+      'Your server makes a <strong>direct server-to-server</strong> POST /token to Lucid, sending code + code_verifier + client_secret. This call never touches the browser. Lucid verifies the verifier matches the stored challenge.',
+      'Lucid returns an access_token (and optionally a refresh_token if offline_access scope was requested). Your server stores it in memory and the OAuth flow is complete.',
+    ] : [
+      'Your server generates a random <strong>state</strong> token to prevent CSRF attacks. Without PKCE, no code_verifier is generated — the authorization code alone can be exchanged for a token.',
+      'Your server sends the browser a 302 redirect to Lucid\'s /authorize endpoint. The URL includes your client_id, redirect_uri, and state. No code_challenge is added.',
+      'The browser follows the redirect and sends a GET /authorize to Lucid. Lucid validates your client_id and redirect_uri, then shows the consent screen.',
+      'Lucid shows the user a consent screen listing the scopes your app requested. The user clicks "Allow" — Lucid generates a short-lived authorization code.',
+      'Lucid redirects the browser back to your redirect_uri with <code>?code=AUTH_CODE&state=...</code>. Without PKCE, anyone who intercepts this code can exchange it for a token.',
+      'The browser performs a GET /callback to your server, delivering the code and state. Your server verifies the state matches what it generated in Step 1.',
+      'Your server checks state == stored state (CSRF guard), then parses the code. In insecure mode, the code alone is enough to get a token — no verifier needed.',
+      'Your server makes a <strong>direct server-to-server</strong> POST /token to Lucid, sending code + client_secret. Lucid returns a token without verifying any verifier.',
+      'Lucid returns an access_token. Your server stores it in memory. The OAuth flow is complete — but without PKCE, an intercepted code in Step 5 could have been used instead.',
+    ];
+    const codes = [
+      pk ? 'state = crypto.random(32)\nverifier = crypto.random(32)\nchallenge = base64url(sha256(verifier))' : 'state = crypto.random(32)  // CSRF token\n// No PKCE verifier generated',
+      pk ? 'Location: https://lucid.app/oauth2/authorize\n  ?client_id=YOUR_CLIENT_ID\n  &redirect_uri=http://localhost:8000/callback\n  &response_type=code\n  &state=RANDOM_STATE\n  &code_challenge=BASE64_HASH\n  &code_challenge_method=S256' : 'Location: https://lucid.app/oauth2/authorize\n  ?client_id=YOUR_CLIENT_ID\n  &redirect_uri=http://localhost:8000/callback\n  &response_type=code\n  &state=RANDOM_STATE',
+      'GET /oauth2/authorize?client_id=...&code_challenge=... HTTP/1.1\nHost: lucid.app',
+      '// User sees: "Allow this app to access account.user:readonly?"',
+      pk ? 'HTTP/1.1 302 Found\nLocation: http://localhost:8000/callback\n  ?code=SHORT_LIVED_CODE\n  &state=RANDOM_STATE\n\n// Code is bound to code_challenge — useless without verifier' : 'HTTP/1.1 302 Found\nLocation: http://localhost:8000/callback\n  ?code=SHORT_LIVED_CODE\n  &state=RANDOM_STATE\n\n// ⚠ Without PKCE, this code can be exchanged by anyone who intercepts it',
+      'GET /callback?code=SHORT_LIVED_CODE&state=RANDOM_STATE HTTP/1.1\nHost: localhost:8000',
+      'assert request.state == stored_state  // CSRF check\ncode = request.query.code',
+      pk ? 'POST /oauth2/token HTTP/1.1\nHost: api.lucid.co\n\nclient_id=...\n&client_secret=...\n&grant_type=authorization_code\n&code=SHORT_LIVED_CODE\n&code_verifier=ORIGINAL_VERIFIER' : 'POST /oauth2/token HTTP/1.1\nHost: api.lucid.co\n\nclient_id=...\n&client_secret=...\n&grant_type=authorization_code\n&code=SHORT_LIVED_CODE',
+      'HTTP/1.1 200 OK\n{\n  "access_token": "eyJhbGci...",\n  "token_type": "Bearer",\n  "expires_in": 3600\n}',
+    ];
+    const i = Math.min(index, titles.length - 1);
+    return { title: titles[i] || `Step ${n}`, body: bodies[i] || step.desc || '', code: codes[i] || '' };
+  }
+
+  if (simScenario === 'saml') {
+    const titles = [
+      'IdP session is prepared',
+      'SP sends SAMLRequest to browser',
+      'Browser forwards SAMLRequest to IdP',
+      'IdP authenticates the user',
+      'IdP issues a signed SAML assertion',
+      'Browser POST assertion to Lucid SP',
+      'SP validates assertion and logs user in',
+    ];
+    const bodies = pk ? [
+      'The IdP (this app) prepares for an incoming authentication request. In strict mode it will validate the request\'s destination, issuer, and ACS URL against a pre-registered allowlist.',
+      'Lucid\'s Service Provider (SP) sends a SAMLRequest to the browser as a 302 redirect. The redirect contains an encoded AuthnRequest specifying the desired IdP and an ACS (Assertion Consumer Service) URL.',
+      'The browser follows the redirect and POSTs or GETs the SAMLRequest to your IdP. In strict mode the IdP validates that the request destination and ACS URL match what\'s configured.',
+      'The IdP verifies the user\'s identity (SSO session or login form). In strict mode it also checks the request issuer against a known SP allowlist.',
+      'The IdP creates a signed XML assertion containing the user\'s identity and attributes. The signature uses an X.509 private key — Lucid must have the matching public cert to verify it.',
+      'The browser POSTs the base64-encoded assertion to Lucid\'s ACS URL. In strict mode the SP checks InResponseTo (ties assertion to original request) and NotOnOrAfter (replay prevention).',
+      'Lucid verifies the assertion signature against the stored IdP certificate, checks timestamps and audience restrictions, then creates a session for the user.',
+    ] : [
+      'The IdP prepares for an incoming SAML request. In weak mode it accepts requests without strict issuer or ACS URL validation, making it vulnerable to open-redirect and spoofed-issuer attacks.',
+      'Lucid SP sends a SAMLRequest to the browser. Without strict mode, a tampered RelayState or ACS URL in the redirect could redirect the assertion to an attacker-controlled endpoint.',
+      'The browser forwards the SAMLRequest to your IdP. In weak mode the IdP trusts the ACS URL from the request rather than its own configuration — opening the door to ACS hijacking.',
+      'The IdP authenticates the user, but in weak mode it doesn\'t validate the request issuer. A spoofed SP could trick the IdP into issuing an assertion for any service.',
+      'The IdP issues a signed assertion. Without replay protection (no InResponseTo), this assertion could be captured and replayed to authenticate as the user later.',
+      'The browser POSTs the assertion to Lucid\'s ACS URL. Without replay checks, the same assertion can be submitted multiple times or redirected to a different SP.',
+      'Lucid processes the assertion. Weak validation might accept expired or replayed assertions — the flow "works" but is insecure.',
+    ];
+    const i = Math.min(index, titles.length - 1);
+    return {
+      title: titles[i] || `Step ${n}`,
+      body: bodies[i] || step.desc || '',
+      code: '',
+    };
+  }
+
+  // Fallback
+  return { title: `Step ${n} of ${total}`, body: step.desc || simStepSummary(index), code: '' };
+}
+
+function simShowPauseOverlay(step, index, nextCb) {
+  simPaused = true;
+  simPausedAtIndex = index;
+  simPausedCallback = nextCb;
+
+  // Cancel any in-flight timer so the simulation freezes
+  if (simFlightTimer) { clearTimeout(simFlightTimer); simFlightTimer = null; }
+
+  const overlay   = document.getElementById('sim-pause-overlay');
+  const labelEl   = document.getElementById('sim-pause-step-label');
+  const titleEl   = document.getElementById('sim-pause-step-title');
+  const bodyEl    = document.getElementById('sim-pause-step-body');
+  const codeEl    = document.getElementById('sim-pause-step-code');
+  const pauseBtn  = document.getElementById('sim-hud-pause');
+
+  const total = simCurrentSteps().length;
+  const info  = simPauseExplainStep(step, index);
+
+  if (labelEl) labelEl.textContent = `PAUSED — Step ${index + 1} of ${total}`;
+  if (titleEl) titleEl.textContent = info.title;
+  if (bodyEl)  bodyEl.innerHTML    = info.body;
+  if (codeEl) {
+    if (info.code) {
+      codeEl.textContent = info.code;
+      codeEl.classList.remove('hidden');
+    } else {
+      codeEl.classList.add('hidden');
+    }
+  }
+  if (overlay)  overlay.classList.add('sim-pause-visible');
+  if (pauseBtn) { pauseBtn.textContent = '▶ Resume'; pauseBtn.classList.add('sim-paused'); }
+}
+
+function simHidePauseOverlay() {
+  simPaused = false;
+  const overlay  = document.getElementById('sim-pause-overlay');
+  const pauseBtn = document.getElementById('sim-hud-pause');
+  if (overlay)  overlay.classList.remove('sim-pause-visible');
+  if (pauseBtn) { pauseBtn.textContent = '⏸ Pause'; pauseBtn.classList.remove('sim-paused'); }
+}
+
+function simTogglePause() {
+  if (simPaused) {
+    // Resume: run the saved continuation
+    simHidePauseOverlay();
+    if (simPausedCallback) {
+      const cb = simPausedCallback;
+      simPausedCallback = null;
+      cb();
+    }
+  } else {
+    // Pause at current step
+    if (!simRunning) return;
+    const steps = simCurrentSteps();
+    const step  = steps[simWaveIndex] || steps[steps.length - 1];
+    simShowPauseOverlay(step, simWaveIndex, () => simRunStep(simWaveIndex));
+  }
+}
+
+function simPauseStepNext() {
+  // Advance to the next step from the pause overlay
+  const nextIndex = simPausedAtIndex + 1;
+  simHidePauseOverlay();
+  simPausedCallback = null;
+  simRunStep(nextIndex);
+}
+
 function initSimulate() {
   // PKCE toggle
   const toggleBtn = document.getElementById('sim-pkce-toggle');
@@ -5921,6 +6508,23 @@ function initSimulate() {
   // HUD restart — always visible in the top bar, works at any point in the game
   const hudRestart = document.getElementById('sim-hud-restart');
   if (hudRestart) hudRestart.addEventListener('click', simStartRun);
+
+  // HUD pause — toggles pause overlay on/off at current step
+  const hudPause = document.getElementById('sim-hud-pause');
+  if (hudPause) hudPause.addEventListener('click', simTogglePause);
+
+  // Pause overlay action buttons
+  const pauseNext   = document.getElementById('sim-pause-next-btn');
+  const pauseResume = document.getElementById('sim-pause-resume-btn');
+  if (pauseNext)   pauseNext.addEventListener('click', simPauseStepNext);
+  if (pauseResume) pauseResume.addEventListener('click', () => {
+    simHidePauseOverlay();
+    if (simPausedCallback) {
+      const cb = simPausedCallback;
+      simPausedCallback = null;
+      cb();
+    }
+  });
 
   // Always unlock on init — the simulation game is educational and playable without
   // OAuth. updateAuthUI() also calls simUnlock() when REST auth is confirmed, making

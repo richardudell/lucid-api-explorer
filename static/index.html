@@ -1561,6 +1561,7 @@
       <button class="panel-tab" data-tab="code">Code</button>
       <button class="panel-tab" data-tab="narrative">Claude Narrative</button>
       <button class="panel-tab sim-tab-locked" data-tab="simulate" id="tab-simulate-btn" title="Complete OAuth to unlock">🎮 Simulate <span class="sim-lock-icon" id="sim-lock-icon">🔒</span></button>
+      <button class="panel-tab" data-tab="http-methods" id="tab-http-methods-btn" title="Interactive HTTP methods explorer">🔀 HTTP Methods</button>
       <button class="panel-tab" data-tab="docs" id="tab-docs-btn" title="Training &amp; reference documents">📄 Docs</button>
       <button id="panel-expand-btn" title="Expand panel">⤢</button>
       <button id="panel-collapse-btn" title="Collapse / expand panel">▼</button>
@@ -1628,11 +1629,12 @@
           <div class="sim-overlay-icon">🎮</div>
           <div class="sim-overlay-title" id="sim-overlay-start-title">OAuth Packet Intercept</div>
           <div class="sim-overlay-sub" id="sim-overlay-start-sub">
-            You are the attacker. Click glowing packets in flight to intercept them.
-            Toggle PKCE to watch the same attacks get blocked.
+            Watch each step of the flow animate in real time.
+            Click a glowing packet to pause and read what's happening — or hit ⏸ Pause at any point.
+            Toggle PKCE or Strict checks to see how defenses change the flow.
           </div>
           <div class="sim-start-mode" id="sim-start-mode">Starting mode: Insecure</div>
-          <button class="sim-btn-start" id="sim-btn-start-overlay">Start attack →</button>
+          <button class="sim-btn-start" id="sim-btn-start-overlay">Start simulation →</button>
         </div>
 
         <div id="sim-overlay-pwned" class="sim-overlay sim-overlay-pwned">
@@ -1657,6 +1659,18 @@
           <button class="sim-btn-replay" id="sim-btn-replay-missed">↺ Try again</button>
         </div>
 
+        <!-- Pause step-detail overlay: appears when user clicks ⏸ during a run -->
+        <div id="sim-pause-overlay">
+          <div id="sim-pause-step-label">PAUSED — Step 1</div>
+          <div id="sim-pause-step-title">Step title</div>
+          <div id="sim-pause-step-body">Step explanation goes here.</div>
+          <div id="sim-pause-step-code" class="hidden"></div>
+          <div class="sim-pause-actions">
+            <button class="sim-pause-next-btn" id="sim-pause-next-btn">Next step →</button>
+            <button class="sim-pause-resume-btn" id="sim-pause-resume-btn">▶ Resume</button>
+          </div>
+        </div>
+
         <div id="sim-overlay-flash" class="sim-overlay sim-overlay-flash">
           <div class="sim-flash-icon" id="sim-flash-icon"></div>
           <div class="sim-flash-title" id="sim-flash-title"></div>
@@ -1674,6 +1688,7 @@
           </select>
           <button class="sim-pkce-toggle" id="sim-pkce-toggle">Without PKCE</button>
           <div class="sim-mode-badge sim-mode-insecure" id="sim-mode-badge">INSECURE</div>
+          <button class="sim-hud-pause" id="sim-hud-pause" title="Pause at current step to read more">⏸ Pause</button>
           <button class="sim-hud-restart" id="sim-hud-restart" title="Restart game">↺ Restart</button>
         </div>
 
@@ -1723,6 +1738,101 @@
         </div>
 
       </div><!-- /tab-simulate -->
+
+      <!-- HTTP Methods tab -->
+      <div id="tab-http-methods" class="tab-pane hm-pane">
+
+        <!-- Left: method selector + concept cards -->
+        <div id="hm-sidebar">
+          <div id="hm-sidebar-title">HTTP Methods</div>
+          <div id="hm-method-list">
+            <button class="hm-method-btn hm-method-get active"    data-method="GET">GET</button>
+            <button class="hm-method-btn hm-method-post"          data-method="POST">POST</button>
+            <button class="hm-method-btn hm-method-put"           data-method="PUT">PUT</button>
+            <button class="hm-method-btn hm-method-patch"         data-method="PATCH">PATCH</button>
+            <button class="hm-method-btn hm-method-delete"        data-method="DELETE">DELETE</button>
+          </div>
+
+          <div id="hm-concept-badges">
+            <div id="hm-badge-idempotent" class="hm-badge hm-badge-yes" title="Idempotent: calling this method multiple times gives the same result">
+              <span class="hm-badge-icon">♻</span>
+              <span id="hm-badge-idempotent-label">Idempotent</span>
+            </div>
+            <div id="hm-badge-safe" class="hm-badge hm-badge-yes" title="Safe: this method does not modify server state">
+              <span class="hm-badge-icon">🛡</span>
+              <span id="hm-badge-safe-label">Safe</span>
+            </div>
+            <div id="hm-badge-body" class="hm-badge hm-badge-no" title="Request body: whether this method sends a request body">
+              <span class="hm-badge-icon">📦</span>
+              <span id="hm-badge-body-label">No body</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: interactive visualiser + exercise -->
+        <div id="hm-main">
+
+          <!-- Method header -->
+          <div id="hm-header">
+            <span id="hm-method-badge" class="hm-method-badge-large hm-method-get">GET</span>
+            <div id="hm-header-text">
+              <div id="hm-title">Retrieve a resource</div>
+              <div id="hm-subtitle">Reads data — never modifies anything on the server.</div>
+            </div>
+          </div>
+
+          <!-- Animated HTTP exchange visualiser -->
+          <div id="hm-visualiser">
+            <div id="hm-vis-client" class="hm-vis-actor">
+              <div class="hm-vis-icon">🖥</div>
+              <div class="hm-vis-label">Your App</div>
+            </div>
+            <div id="hm-vis-wire">
+              <div id="hm-vis-request-packet"  class="hm-vis-packet hm-vis-packet-req hidden"></div>
+              <div id="hm-vis-response-packet" class="hm-vis-packet hm-vis-packet-res hidden"></div>
+              <div id="hm-vis-wire-line"></div>
+            </div>
+            <div id="hm-vis-server" class="hm-vis-actor">
+              <div class="hm-vis-icon">◈</div>
+              <div class="hm-vis-label">Lucid API</div>
+              <div id="hm-vis-resource" class="hm-vis-resource">
+                <div id="hm-vis-resource-label">User record</div>
+                <div id="hm-vis-resource-state"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Request/Response code panels -->
+          <div id="hm-exchange">
+            <div class="hm-exchange-panel">
+              <div class="hm-exchange-label">Request</div>
+              <pre id="hm-request-block" class="hm-code-block"></pre>
+            </div>
+            <div id="hm-exchange-arrow">→</div>
+            <div class="hm-exchange-panel">
+              <div class="hm-exchange-label">Response</div>
+              <pre id="hm-response-block" class="hm-code-block"></pre>
+            </div>
+          </div>
+
+          <!-- Explanation -->
+          <div id="hm-explanation"></div>
+
+          <!-- Idempotency exercise -->
+          <div id="hm-exercise">
+            <div id="hm-exercise-title">Try it — send the request multiple times</div>
+            <div id="hm-exercise-controls">
+              <button id="hm-btn-send" class="hm-btn-send">▶ Send request</button>
+              <button id="hm-btn-reset" class="hm-btn-reset">↺ Reset</button>
+              <span id="hm-send-count" class="hm-send-count"></span>
+            </div>
+            <div id="hm-exercise-result"></div>
+            <div id="hm-exercise-lesson" class="hidden"></div>
+          </div>
+
+        </div><!-- /hm-main -->
+
+      </div><!-- /tab-http-methods -->
 
       <!-- Docs tab -->
       <div id="tab-docs" class="tab-pane docs-pane">
