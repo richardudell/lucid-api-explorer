@@ -68,12 +68,13 @@ LUCID_CLIENT_ID: str = _require("LUCID_CLIENT_ID", "__DEMO_CLIENT_ID__")
 LUCID_CLIENT_SECRET: str = _require("LUCID_CLIENT_SECRET", "__DEMO_CLIENT_SECRET__")
 LUCID_REDIRECT_URI: str = _require("LUCID_REDIRECT_URI", "http://localhost:8000/callback")
 
-# Scopes are space- or comma-separated in .env; stored as a list for easy iteration.
-# Valid Lucid OAuth scope strings: account.user, account.user:readonly, user.profile,
-# lucidchart.document.content, lucidchart.document.content:readonly, offline_access, etc.
+# Fallback OAuth scopes — used only if /auth/lucid or /auth/lucid-account is called
+# with no ?scopes= query param (i.e., the UI scope selector was bypassed).
+# These are NOT configurable via .env — scope selection happens in the UI via
+# /auth/required-scopes, which builds the list dynamically from ENDPOINT_REGISTRY.
 # See: https://developer.lucid.co/reference/access-scopes
-_raw_scopes = os.getenv("LUCID_OAUTH_SCOPES", "account.user:readonly user.profile")
-LUCID_OAUTH_SCOPES: list[str] = [s.strip() for s in _raw_scopes.replace(",", " ").split() if s.strip()]
+LUCID_OAUTH_SCOPES: list[str] = ["account.user:readonly", "user.profile"]
+LUCID_ACCOUNT_OAUTH_SCOPES: list[str] = ["account.user"]
 
 # Lucid OAuth endpoints (not in .env — they are stable public URLs)
 # User token: standard Authorization Code flow — for user-context endpoints
@@ -84,10 +85,6 @@ LUCID_TOKEN_URL: str = "https://api.lucid.co/oauth2/token"
 
 # Redirect URI for the account token callback — must be registered in the Developer Portal
 LUCID_ACCOUNT_REDIRECT_URI: str = os.getenv("LUCID_ACCOUNT_REDIRECT_URI", "http://localhost:8000/callback-account")
-
-# Scopes for the account token flow — account-admin level operations
-_raw_account_scopes = os.getenv("LUCID_ACCOUNT_OAUTH_SCOPES", "account.user")
-LUCID_ACCOUNT_OAUTH_SCOPES: list[str] = [s.strip() for s in _raw_account_scopes.replace(",", " ").split() if s.strip()]
 
 # ── Lucid REST API base URL ──────────────────────────────────────────────────
 LUCID_REST_BASE_URL: str = "https://api.lucid.co"
